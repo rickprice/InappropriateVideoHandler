@@ -1,0 +1,22 @@
+browser:
+  executable: "echo"
+  url: "https://test.example.com"
+  process_name: "test-echo"
+
+monitoring:
+  check_frequency_seconds: 1
+
+timeouts:
+  blacklist_timeout_minutes: 2
+  bathroom_break_minutes: 1
+  bathroom_break_interval_hours: 1
+
+backgrounds:
+  normal: "/tmp/test_normal.jpg"
+  blocked: "/tmp/test_blocked.jpg"
+  bathroom_break: "/tmp/test_break.jpg"
+
+files:
+  blacklist: "test_blacklist.txt"
+  whitelist: "test_whitelist.txt"
+  state_file: "/tmp/test_state.json"

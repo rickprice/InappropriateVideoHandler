@@ -1,0 +1,4 @@
+# Test whitelist patterns for testing
+.*test.*education.*
+.*test.*medical.*
+.*fake.*documentary.*

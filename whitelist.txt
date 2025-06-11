@@ -1,0 +1,6 @@
+# Whitelist patterns (regex)
+# Add patterns that should be allowed even if they match blacklist
+# Example patterns:
+.*[Ee]ducation.*
+.*[Mm]edical.*
+.*[Ss]cience.*

@@ -1,0 +1,8 @@
+# Blacklist patterns (regex)
+# Add patterns that should trigger browser blocking
+# Example patterns:
+.*[Pp]orn.*
+.*[Aa]dult.*
+.*[Xx]{3}.*
+.*[Nn]ude.*
+.*[Ss]ex.*

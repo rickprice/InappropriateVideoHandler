@@ -1,0 +1,22 @@
+browser:
+  executable: "firefox"
+  url: "https://www.google.com"
+  process_name: "firefox"
+
+monitoring:
+  check_frequency_seconds: 60
+
+timeouts:
+  blacklist_timeout_minutes: 10
+  bathroom_break_minutes: 10
+  bathroom_break_interval_hours: 3
+
+backgrounds:
+  normal: "/home/user/backgrounds/normal.jpg"
+  blocked: "/home/user/backgrounds/blocked.jpg"
+  bathroom_break: "/home/user/backgrounds/bathroom.jpg"
+
+files:
+  blacklist: "blacklist.txt"
+  whitelist: "whitelist.txt"
+  state_file: "/tmp/ivh_state.json"

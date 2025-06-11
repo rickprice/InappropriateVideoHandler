@@ -1,0 +1,6 @@
+# Test blacklist patterns for testing
+.*test.*porn.*
+.*test.*adult.*
+.*fake.*inappropriate.*
+# Case insensitive test pattern
+(?i).*TEST.*XXX.*
