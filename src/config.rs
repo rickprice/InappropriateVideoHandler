@@ -1,7 +1,7 @@
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use anyhow::Result;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
@@ -86,13 +86,13 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
     use std::io::Write;
+    use tempfile::NamedTempFile;
 
     #[test]
     fn test_config_default() {
         let config = Config::default();
-        
+
         assert_eq!(config.browser.executable, "firefox");
         assert_eq!(config.browser.url, "https://www.google.com");
         assert_eq!(config.browser.process_name, "firefox");
@@ -100,9 +100,18 @@ mod tests {
         assert_eq!(config.timeouts.blacklist_timeout_minutes, 10);
         assert_eq!(config.timeouts.bathroom_break_minutes, 10);
         assert_eq!(config.timeouts.bathroom_break_interval_hours, 3);
-        assert_eq!(config.backgrounds.normal, "/home/user/backgrounds/normal.jpg");
-        assert_eq!(config.backgrounds.blocked, "/home/user/backgrounds/blocked.jpg");
-        assert_eq!(config.backgrounds.bathroom_break, "/home/user/backgrounds/bathroom.jpg");
+        assert_eq!(
+            config.backgrounds.normal,
+            "/home/user/backgrounds/normal.jpg"
+        );
+        assert_eq!(
+            config.backgrounds.blocked,
+            "/home/user/backgrounds/blocked.jpg"
+        );
+        assert_eq!(
+            config.backgrounds.bathroom_break,
+            "/home/user/backgrounds/bathroom.jpg"
+        );
         assert_eq!(config.files.blacklist, "blacklist.txt");
         assert_eq!(config.files.whitelist, "whitelist.txt");
         assert_eq!(config.files.state_file, "/tmp/ivh_state.json");
@@ -137,9 +146,9 @@ files:
 
         let mut temp_file = NamedTempFile::new().unwrap();
         temp_file.write_all(yaml_content.as_bytes()).unwrap();
-        
+
         let config = Config::load(temp_file.path()).unwrap();
-        
+
         assert_eq!(config.browser.executable, "chromium");
         assert_eq!(config.browser.url, "https://example.com");
         assert_eq!(config.browser.process_name, "chromium");
@@ -158,10 +167,10 @@ files:
     #[test]
     fn test_config_load_invalid_yaml() {
         let invalid_yaml = "invalid: yaml: content: [";
-        
+
         let mut temp_file = NamedTempFile::new().unwrap();
         temp_file.write_all(invalid_yaml.as_bytes()).unwrap();
-        
+
         let result = Config::load(temp_file.path());
         assert!(result.is_err());
     }
@@ -178,10 +187,10 @@ files:
 browser:
   executable: "firefox"
 "#;
-        
+
         let mut temp_file = NamedTempFile::new().unwrap();
         temp_file.write_all(incomplete_yaml.as_bytes()).unwrap();
-        
+
         let result = Config::load(temp_file.path());
         assert!(result.is_err());
     }

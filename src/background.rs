@@ -1,5 +1,5 @@
-use std::process::Command;
 use anyhow::Result;
+use std::process::Command;
 
 pub struct BackgroundManager;
 
@@ -108,11 +108,7 @@ mod tests {
     #[serial]
     fn test_multiple_background_changes() {
         // Test rapid succession of background changes
-        let backgrounds = vec![
-            "/test/bg1.jpg",
-            "/test/bg2.jpg",
-            "/test/bg3.jpg",
-        ];
+        let backgrounds = vec!["/test/bg1.jpg", "/test/bg2.jpg", "/test/bg3.jpg"];
 
         for bg in backgrounds {
             let result = BackgroundManager::set_background(bg);
@@ -140,11 +136,7 @@ mod tests {
     #[test]
     #[serial]
     fn test_background_unicode_paths() {
-        let unicode_paths = vec![
-            "/test/测试.jpg",
-            "/test/café.jpg", 
-            "/test/🖼️.jpg",
-        ];
+        let unicode_paths = vec!["/test/测试.jpg", "/test/café.jpg", "/test/🖼️.jpg"];
 
         for path in unicode_paths {
             let result = BackgroundManager::set_background(path);
@@ -171,7 +163,7 @@ mod tests {
         // This test requires a real image file and display environment
         // Create a simple test image or use an existing one
         use std::process::Command;
-        
+
         // Check if feh is available
         let feh_check = Command::new("which").arg("feh").output();
         if feh_check.is_err() {

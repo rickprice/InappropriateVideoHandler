@@ -1,21 +1,21 @@
+mod background;
+mod browser;
 mod config;
+mod filter;
 mod state;
 mod window_monitor;
-mod filter;
-mod browser;
-mod background;
 
-use clap::{Arg, Command};
-use tokio::time::{sleep, Duration};
 use chrono::Utc;
+use clap::{Arg, Command};
 use std::sync::Arc;
+use tokio::time::{sleep, Duration};
 
+use background::BackgroundManager;
+use browser::BrowserManager;
 use config::Config;
+use filter::Filter;
 use state::AppState;
 use window_monitor::WindowMonitor;
-use filter::Filter;
-use browser::BrowserManager;
-use background::BackgroundManager;
 
 #[tokio::main]
 async fn main() {
@@ -88,12 +88,14 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
             );
             state.save(&config.files.state_file)?;
         }
-        
+
         if state.in_bathroom_break {
             if let Some(until) = state.bathroom_break_until {
                 if Utc::now() < until {
                     println!("It's bathroom break time");
-                    BackgroundManager::set_bathroom_break_background(&config.backgrounds.bathroom_break)?;
+                    BackgroundManager::set_bathroom_break_background(
+                        &config.backgrounds.bathroom_break,
+                    )?;
                     return Ok(());
                 } else {
                     state.end_bathroom_break();
@@ -104,7 +106,7 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
     }
 
     BackgroundManager::set_normal_background(&config.backgrounds.normal)?;
-    
+
     let browser_manager = BrowserManager::new(
         config.browser.executable.clone(),
         config.browser.process_name.clone(),
@@ -120,7 +122,10 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
 
 async fn run_daemon(config: &Config) -> anyhow::Result<()> {
     let window_monitor = Arc::new(WindowMonitor::new()?);
-    let filter = Arc::new(Filter::new(&config.files.blacklist, &config.files.whitelist)?);
+    let filter = Arc::new(Filter::new(
+        &config.files.blacklist,
+        &config.files.whitelist,
+    )?);
     let browser_manager = Arc::new(BrowserManager::new(
         config.browser.executable.clone(),
         config.browser.process_name.clone(),
@@ -141,7 +146,9 @@ async fn run_daemon(config: &Config) -> anyhow::Result<()> {
             }
         }
 
-        if state.is_bathroom_break_time(config.timeouts.bathroom_break_interval_hours) && !state.in_bathroom_break {
+        if state.is_bathroom_break_time(config.timeouts.bathroom_break_interval_hours)
+            && !state.in_bathroom_break
+        {
             println!("Initiating bathroom break");
             browser_manager.kill_browser_processes()?;
             state.start_bathroom_break(
@@ -162,6 +169,9 @@ async fn run_daemon(config: &Config) -> anyhow::Result<()> {
             }
         }
 
-        sleep(Duration::from_secs(config.monitoring.check_frequency_seconds)).await;
+        sleep(Duration::from_secs(
+            config.monitoring.check_frequency_seconds,
+        ))
+        .await;
     }
 }

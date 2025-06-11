@@ -1,7 +1,7 @@
+use anyhow::{anyhow, Result};
 use std::ffi::CStr;
 use std::ptr;
 use x11::xlib::*;
-use anyhow::{Result, anyhow};
 
 pub struct WindowMonitor {
     display: *mut Display,
@@ -23,9 +23,9 @@ impl WindowMonitor {
             let root = XDefaultRootWindow(self.display);
             let mut window: Window = 0;
             let mut revert_to: i32 = 0;
-            
+
             XGetInputFocus(self.display, &mut window, &mut revert_to);
-            
+
             if window == 0 || window == root {
                 return Ok(String::new());
             }
@@ -56,7 +56,7 @@ impl WindowMonitor {
             }
 
             let mut titles = Vec::new();
-            
+
             for i in 0..nchildren {
                 let window = *children.offset(i as isize);
                 if let Ok(title) = self.get_window_title(window) {
@@ -78,16 +78,16 @@ impl WindowMonitor {
         unsafe {
             let mut name: *mut i8 = ptr::null_mut();
             let status = XFetchName(self.display, window, &mut name);
-            
+
             if status == 0 || name.is_null() {
                 return Ok(String::new());
             }
 
             let c_str = CStr::from_ptr(name);
             let title = c_str.to_string_lossy().into_owned();
-            
+
             XFree(name as *mut _);
-            
+
             Ok(title)
         }
     }
