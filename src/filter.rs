@@ -42,10 +42,8 @@ impl Filter {
 
     pub fn is_blacklisted(&self, title: &str) -> bool {
         for pattern in &self.blacklist {
-            if pattern.is_match(title) {
-                if !self.is_whitelisted(title) {
-                    return true;
-                }
+            if pattern.is_match(title) && !self.is_whitelisted(title) {
+                return true;
             }
         }
         false

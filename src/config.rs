@@ -45,14 +45,8 @@ pub struct FileConfig {
     pub state_file: String,
 }
 
-impl Config {
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let content = fs::read_to_string(path)?;
-        let config: Config = serde_yaml::from_str(&content)?;
-        Ok(config)
-    }
-
-    pub fn default() -> Self {
+impl Default for Config {
+    fn default() -> Self {
         Config {
             browser: BrowserConfig {
                 executable: "firefox".to_string(),
@@ -78,6 +72,14 @@ impl Config {
                 state_file: "/tmp/ivh_state.json".to_string(),
             },
         }
+    }
+}
+
+impl Config {
+    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let content = fs::read_to_string(path)?;
+        let config: Config = serde_yaml::from_str(&content)?;
+        Ok(config)
     }
 }
 

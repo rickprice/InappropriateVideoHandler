@@ -67,7 +67,7 @@ impl BrowserManager {
     }
 
     pub fn has_running_processes(&self) -> bool {
-        self.find_browser_pids().unwrap_or_default().len() > 0
+        !self.find_browser_pids().unwrap_or_default().is_empty()
     }
 }
 
