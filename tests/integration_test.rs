@@ -259,7 +259,7 @@ fn test_edge_case_handling() {
     assert!(!filter.check_titles(&vec!["any content".to_string()]));
 
     // Test browser manager with empty process name
-    let manager = BrowserManager::new("echo".to_string(), "".to_string());
+    let manager = BrowserManager::new("some_executable".to_string(), "".to_string());
     assert!(!manager.has_running_processes());
 
     // Test state with corrupted file

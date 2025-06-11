@@ -99,7 +99,7 @@ mod tests {
 
     #[test]
     fn test_app_state_save_and_load() {
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let temp_file = NamedTempFile::new().unwrap();
         let temp_path = temp_file.path().to_path_buf();
 
         let mut original_state = AppState::default();

@@ -46,6 +46,11 @@ impl BrowserManager {
     }
 
     fn find_browser_pids(&self) -> Result<Vec<i32>> {
+        // Return empty vector if process name is empty
+        if self.process_name.is_empty() {
+            return Ok(Vec::new());
+        }
+
         let output = Command::new("pgrep")
             .arg("-f")
             .arg(&self.process_name)
@@ -64,6 +69,7 @@ impl BrowserManager {
         Ok(pids)
     }
 
+    #[allow(dead_code)]
     pub fn has_running_processes(&self) -> bool {
         !self.find_browser_pids().unwrap_or_default().is_empty()
     }
@@ -209,9 +215,8 @@ mod tests {
         let manager = BrowserManager::new("firefox".to_string(), "".to_string());
 
         // pgrep with empty pattern matches all processes, so we expect many results
-        let pids = manager.find_browser_pids().unwrap();
-        // Just verify it doesn't crash and returns some result
-        assert!(pids.len() >= 0); // This will always pass but documents the behavior
+        let _pids = manager.find_browser_pids().unwrap();
+        // Just verify it doesn't crash and returns a valid vector
     }
 
     #[test]

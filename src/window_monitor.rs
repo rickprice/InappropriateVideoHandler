@@ -18,6 +18,7 @@ impl WindowMonitor {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_active_window_title(&self) -> Result<String> {
         unsafe {
             let root = XDefaultRootWindow(self.display);
