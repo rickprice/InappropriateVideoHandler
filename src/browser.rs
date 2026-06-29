@@ -82,10 +82,10 @@ mod tests {
 
     #[test]
     fn test_browser_manager_new() {
-        let manager = BrowserManager::new("firefox".to_string(), "firefox".to_string());
+        let manager = BrowserManager::new("google-chrome-stable".to_string(), "chrome".to_string());
 
-        assert_eq!(manager.executable, "firefox");
-        assert_eq!(manager.process_name, "firefox");
+        assert_eq!(manager.executable, "google-chrome-stable");
+        assert_eq!(manager.process_name, "chrome");
     }
 
     #[test]
@@ -155,9 +155,9 @@ mod tests {
     #[serial]
     #[ignore] // Ignored by default as it requires a real browser process
     fn test_start_browser_with_real_browser() {
-        let manager = BrowserManager::new("firefox".to_string(), "firefox".to_string());
+        let manager = BrowserManager::new("google-chrome-stable".to_string(), "chrome".to_string());
 
-        // This would actually start Firefox - only run in isolated test environment
+        // This would actually start Chrome - only run in isolated test environment
         let result = manager.start_browser("https://example.com");
 
         if result.is_ok() {
@@ -171,12 +171,12 @@ mod tests {
     #[serial]
     #[ignore] // Ignored by default as it requires a real browser process
     fn test_browser_lifecycle() {
-        let manager = BrowserManager::new("firefox".to_string(), "firefox".to_string());
+        let manager = BrowserManager::new("google-chrome-stable".to_string(), "chrome".to_string());
 
         // Start browser
         let child = manager.start_browser("https://example.com");
         if child.is_err() {
-            // Skip test if Firefox is not available
+            // Skip test if Chrome is not available
             return;
         }
 
@@ -212,7 +212,7 @@ mod tests {
     #[test]
     #[serial]
     fn test_find_browser_pids_empty_process_name() {
-        let manager = BrowserManager::new("firefox".to_string(), "".to_string());
+        let manager = BrowserManager::new("google-chrome-stable".to_string(), "".to_string());
 
         // pgrep with empty pattern matches all processes, so we expect many results
         let _pids = manager.find_browser_pids().unwrap();
@@ -264,11 +264,11 @@ mod tests {
     #[test]
     fn test_browser_manager_clone_behavior() {
         // Test that we can create multiple instances
-        let manager1 = BrowserManager::new("firefox".to_string(), "firefox".to_string());
+        let manager1 = BrowserManager::new("google-chrome-stable".to_string(), "chrome".to_string());
 
         let manager2 = BrowserManager::new("chromium".to_string(), "chromium".to_string());
 
-        assert_eq!(manager1.executable, "firefox");
+        assert_eq!(manager1.executable, "google-chrome-stable");
         assert_eq!(manager2.executable, "chromium");
         assert_ne!(manager1.executable, manager2.executable);
     }

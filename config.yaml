@@ -1,7 +1,7 @@
 browser:
-  executable: "firefox"
+  executable: "google-chrome-stable"
   url: "https://www.google.com"
-  process_name: "firefox"
+  process_name: "chrome"
 
 monitoring:
   check_frequency_seconds: 60

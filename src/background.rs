@@ -173,7 +173,7 @@ mod tests {
         // Try with a real image file if available
         let test_paths = vec![
             "/usr/share/pixmaps/debian-logo.png", // Common on Debian systems
-            "/usr/share/icons/hicolor/48x48/apps/firefox.png", // Common Firefox icon
+            "/usr/share/icons/hicolor/48x48/apps/google-chrome.png", // Common Chrome icon
         ];
 
         for path in test_paths {

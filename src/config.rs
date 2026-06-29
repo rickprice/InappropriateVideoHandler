@@ -49,9 +49,9 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             browser: BrowserConfig {
-                executable: "firefox".to_string(),
+                executable: "google-chrome-stable".to_string(),
                 url: "https://www.google.com".to_string(),
-                process_name: "firefox".to_string(),
+                process_name: "chrome".to_string(),
             },
             monitoring: MonitoringConfig {
                 check_frequency_seconds: 60,
@@ -93,9 +93,9 @@ mod tests {
     fn test_config_default() {
         let config = Config::default();
 
-        assert_eq!(config.browser.executable, "firefox");
+        assert_eq!(config.browser.executable, "google-chrome-stable");
         assert_eq!(config.browser.url, "https://www.google.com");
-        assert_eq!(config.browser.process_name, "firefox");
+        assert_eq!(config.browser.process_name, "chrome");
         assert_eq!(config.monitoring.check_frequency_seconds, 60);
         assert_eq!(config.timeouts.blacklist_timeout_minutes, 10);
         assert_eq!(config.timeouts.bathroom_break_minutes, 10);
@@ -185,7 +185,7 @@ files:
     fn test_config_load_incomplete_yaml() {
         let incomplete_yaml = r#"
 browser:
-  executable: "firefox"
+  executable: "google-chrome-stable"
 "#;
 
         let mut temp_file = NamedTempFile::new().unwrap();
