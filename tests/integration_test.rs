@@ -119,7 +119,7 @@ fn test_state_persistence_workflow() {
 fn test_filter_integration() {
     let (blacklist_file, whitelist_file) = create_temp_filter_files();
 
-    let filter = Filter::new(blacklist_file.path(), whitelist_file.path()).unwrap();
+    let filter = Filter::new(blacklist_file.path(), whitelist_file.path(), 0).unwrap();
 
     // Test blacklist matching
     assert!(filter.is_blacklisted("free porn videos"));
@@ -150,11 +150,59 @@ fn test_filter_integration() {
 }
 
 #[test]
+fn test_filter_find_blacklisted_title_integration() {
+    let (blacklist_file, whitelist_file) = create_temp_filter_files();
+    let filter = Filter::new(blacklist_file.path(), whitelist_file.path(), 0).unwrap();
+
+    let titles = vec![
+        "cooking tutorial".to_string(),
+        "free porn videos".to_string(),
+        "news update".to_string(),
+    ];
+
+    let result = filter.find_blacklisted_title(&titles);
+    assert!(result.is_some());
+    let (title, pattern) = result.unwrap();
+    assert_eq!(title, "free porn videos");
+    assert_eq!(pattern, ".*porn.*");
+}
+
+#[test]
+fn test_filter_find_blacklisted_title_whitelisted() {
+    let (blacklist_file, whitelist_file) = create_temp_filter_files();
+    let filter = Filter::new(blacklist_file.path(), whitelist_file.path(), 0).unwrap();
+
+    // All titles are whitelisted or clean — no hit expected
+    let titles = vec![
+        "sex education documentary".to_string(),
+        "medical adult content".to_string(),
+    ];
+    assert!(filter.find_blacklisted_title(&titles).is_none());
+}
+
+#[test]
+fn test_filter_integration_all_debug_levels() {
+    let (blacklist_file, whitelist_file) = create_temp_filter_files();
+
+    for level in 0u8..=3 {
+        let bl = std::path::Path::new(blacklist_file.path());
+        let wl = std::path::Path::new(whitelist_file.path());
+        let filter = Filter::new(bl, wl, level).unwrap();
+
+        assert_eq!(filter.blacklist_len(), 3, "level={}", level);
+        assert_eq!(filter.whitelist_len(), 2, "level={}", level);
+        assert!(filter.is_blacklisted("free porn videos"), "level={}", level);
+        assert!(!filter.is_blacklisted("sex education documentary"), "level={}", level);
+    }
+}
+
+#[test]
 #[serial]
 fn test_browser_manager_integration() {
     let manager = BrowserManager::new(
         "echo".to_string(), // Use echo for safe testing
         "nonexistent-process".to_string(),
+        0,
     );
 
     // Test starting "browser" (echo command)
@@ -171,16 +219,39 @@ fn test_browser_manager_integration() {
 
 #[test]
 #[serial]
+fn test_browser_manager_integration_with_debug() {
+    for level in 0u8..=3 {
+        let manager = BrowserManager::new(
+            "echo".to_string(),
+            "nonexistent-process".to_string(),
+            level,
+        );
+        assert!(!manager.has_running_processes(), "debug_level={}", level);
+        assert!(manager.kill_browser_processes().is_ok(), "debug_level={}", level);
+    }
+}
+
+#[test]
+#[serial]
 fn test_background_manager_integration() {
-    // Test all background setting methods
-    let result1 = BackgroundManager::set_normal_background("/tmp/test_normal.jpg");
-    let result2 = BackgroundManager::set_blocked_background("/tmp/test_blocked.jpg");
-    let result3 = BackgroundManager::set_bathroom_break_background("/tmp/test_break.jpg");
+    let bg = BackgroundManager::new(0);
 
     // All should complete without error (even if feh fails)
-    assert!(result1.is_ok());
-    assert!(result2.is_ok());
-    assert!(result3.is_ok());
+    assert!(bg.set_normal_background("/tmp/test_normal.jpg").is_ok());
+    assert!(bg.set_blocked_background("/tmp/test_blocked.jpg").is_ok());
+    assert!(bg.set_bathroom_break_background("/tmp/test_break.jpg").is_ok());
+}
+
+#[test]
+#[serial]
+fn test_background_manager_integration_with_debug() {
+    for level in 0u8..=3 {
+        let bg = BackgroundManager::new(level);
+        assert!(bg.set_background("/tmp/test.jpg").is_ok(), "debug_level={}", level);
+        assert!(bg.set_normal_background("/tmp/normal.jpg").is_ok(), "debug_level={}", level);
+        assert!(bg.set_blocked_background("/tmp/blocked.jpg").is_ok(), "debug_level={}", level);
+        assert!(bg.set_bathroom_break_background("/tmp/break.jpg").is_ok(), "debug_level={}", level);
+    }
 }
 
 #[test]
@@ -190,8 +261,8 @@ fn test_complete_workflow_simulation() {
     let (blacklist_file, whitelist_file) = create_temp_filter_files();
 
     // Initialize components
-    let filter = Filter::new(blacklist_file.path(), whitelist_file.path()).unwrap();
-    let manager = BrowserManager::new("echo".to_string(), "test-process".to_string());
+    let filter = Filter::new(blacklist_file.path(), whitelist_file.path(), 0).unwrap();
+    let manager = BrowserManager::new("echo".to_string(), "test-process".to_string(), 0);
     let mut state = AppState::default();
 
     // Simulate normal operation
@@ -199,11 +270,13 @@ fn test_complete_workflow_simulation() {
 
     // Simulate inappropriate content detection
     let bad_titles = vec!["inappropriate porn content".to_string()];
-    if filter.check_titles(&bad_titles) {
-        // Block browser
+    if let Some((title, pattern)) = filter.find_blacklisted_title(&bad_titles) {
+        assert_eq!(title, "inappropriate porn content");
+        assert!(!pattern.is_empty());
+
         let _ = manager.kill_browser_processes();
         state.block_browser(10);
-        let _ = BackgroundManager::set_blocked_background("/tmp/blocked.jpg");
+        let _ = BackgroundManager::new(0).set_blocked_background("/tmp/blocked.jpg");
     }
 
     // Verify state
@@ -254,12 +327,13 @@ fn test_edge_case_handling() {
     fs::write(&empty_blacklist, "").unwrap();
     fs::write(&empty_whitelist, "").unwrap();
 
-    let filter = Filter::new(&empty_blacklist, &empty_whitelist).unwrap();
+    let filter = Filter::new(&empty_blacklist, &empty_whitelist, 0).unwrap();
     assert!(!filter.is_blacklisted("any content"));
-    assert!(!filter.check_titles(&vec!["any content".to_string()]));
+    assert!(!filter.check_titles(&["any content".to_string()]));
+    assert!(filter.find_blacklisted_title(&["any content".to_string()]).is_none());
 
     // Test browser manager with empty process name
-    let manager = BrowserManager::new("some_executable".to_string(), "".to_string());
+    let manager = BrowserManager::new("some_executable".to_string(), "".to_string(), 0);
     assert!(!manager.has_running_processes());
 
     // Test state with corrupted file
