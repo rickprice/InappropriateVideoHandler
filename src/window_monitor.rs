@@ -197,6 +197,54 @@ impl WindowMonitor {
 
     fn get_window_title(&self, window: Window) -> Result<String> {
         unsafe {
+            // Try _NET_WM_NAME first (EWMH UTF-8, used by Chrome and modern apps).
+            // XFetchName reads WM_NAME (legacy), which Chrome does not set.
+            let net_wm_name = XInternAtom(
+                self.display,
+                b"_NET_WM_NAME\0".as_ptr() as *const i8,
+                0,
+            );
+            let utf8_string = XInternAtom(
+                self.display,
+                b"UTF8_STRING\0".as_ptr() as *const i8,
+                0,
+            );
+
+            if net_wm_name != 0 && utf8_string != 0 {
+                let mut actual_type: Atom = 0;
+                let mut actual_format: i32 = 0;
+                let mut nitems: u64 = 0;
+                let mut bytes_after: u64 = 0;
+                let mut prop: *mut u8 = ptr::null_mut();
+
+                let result = XGetWindowProperty(
+                    self.display,
+                    window,
+                    net_wm_name,
+                    0,
+                    1024,
+                    0,
+                    utf8_string,
+                    &mut actual_type,
+                    &mut actual_format,
+                    &mut nitems,
+                    &mut bytes_after,
+                    &mut prop as *mut *mut u8,
+                );
+
+                if result == 0 && !prop.is_null() && nitems > 0 {
+                    let bytes = std::slice::from_raw_parts(prop, nitems as usize);
+                    let title = String::from_utf8_lossy(bytes).into_owned();
+                    XFree(prop as *mut _);
+                    if !title.is_empty() {
+                        return Ok(title);
+                    }
+                } else if !prop.is_null() {
+                    XFree(prop as *mut _);
+                }
+            }
+
+            // Fall back to legacy WM_NAME.
             let mut name: *mut i8 = ptr::null_mut();
             let status = XFetchName(self.display, window, &mut name);
 
