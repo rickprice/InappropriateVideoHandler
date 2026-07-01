@@ -1,6 +1,6 @@
 use anyhow::Result;
 use log::{debug, info, trace, warn};
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 use std::fs;
 use std::path::Path;
 
@@ -35,7 +35,7 @@ impl Filter {
         for line in content.lines() {
             let line = line.trim();
             if !line.is_empty() && !line.starts_with('#') {
-                match Regex::new(line) {
+                match RegexBuilder::new(line).case_insensitive(true).build() {
                     Ok(regex) => {
                         trace!("Loaded {} pattern: '{}'", label, line);
                         patterns.push(regex);
@@ -196,16 +196,8 @@ mod tests {
     }
 
     #[test]
-    fn test_is_blacklisted_case_sensitive() {
+    fn test_is_blacklisted_case_insensitive() {
         let filter = make_filter(".*porn.*", "");
-
-        assert!(filter.is_blacklisted("free porn videos"));
-        assert!(!filter.is_blacklisted("free PORN videos"));
-    }
-
-    #[test]
-    fn test_is_blacklisted_case_insensitive_pattern() {
-        let filter = make_filter("(?i).*porn.*", "");
 
         assert!(filter.is_blacklisted("free porn videos"));
         assert!(filter.is_blacklisted("free PORN videos"));
