@@ -9,8 +9,8 @@ monitoring:
 
 timeouts:
   blacklist_timeout_minutes: 10
-  bathroom_break_minutes: 10
-  bathroom_break_interval_hours: 3
+  bathroom_break_minutes: 4
+  bathroom_break_interval_hours: 2
   grace_retries: 3
   hard_lock_minutes: 40
   retry_reset_minutes: 20

@@ -174,10 +174,15 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
     }
 
     let bg = BackgroundManager::new();
+    let browser_manager = BrowserManager::new(
+        config.browser.executable.clone(),
+        config.browser.process_name.clone(),
+    );
 
     if state.is_blocked() {
         println!("Browser is currently blocked");
         info!("Browser blocked until {:?}", state.blocked_until);
+        browser_manager.kill_browser_processes()?;
         bg.set_blocked_background(&config.backgrounds.blocked)?;
         return Ok(());
     }
@@ -187,6 +192,7 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
             info!("Starting bathroom break: duration={}m interval={}h",
                 config.timeouts.bathroom_break_minutes,
                 config.timeouts.bathroom_break_interval_hours);
+            browser_manager.kill_browser_processes()?;
             state.start_bathroom_break(
                 config.timeouts.bathroom_break_minutes,
                 config.timeouts.bathroom_break_interval_hours,
@@ -199,6 +205,7 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
                 if Utc::now() < until {
                     println!("It's bathroom break time");
                     info!("Bathroom break active until {}", until);
+                    browser_manager.kill_browser_processes()?;
                     bg.set_bathroom_break_background(&config.backgrounds.bathroom_break)?;
                     return Ok(());
                 } else {
@@ -222,11 +229,6 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
 
     info!("Starting browser: executable='{}' url='{}'",
         config.browser.executable, config.browser.url);
-
-    let browser_manager = BrowserManager::new(
-        config.browser.executable.clone(),
-        config.browser.process_name.clone(),
-    );
 
     match browser_manager.start_browser(&config.browser.url) {
         Ok(_) => {

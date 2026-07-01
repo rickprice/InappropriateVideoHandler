@@ -72,7 +72,7 @@ impl AppState {
     fn default_with_next_break() -> Self {
         AppState {
             blocked_until: None,
-            next_bathroom_break: Utc::now() + chrono::Duration::hours(3),
+            next_bathroom_break: Utc::now() + chrono::Duration::hours(2),
             in_bathroom_break: false,
             bathroom_break_until: None,
             violation_count: 0,
@@ -261,7 +261,7 @@ mod tests {
         assert!(!state.in_bathroom_break);
         assert!(state.bathroom_break_until.is_none());
 
-        let expected_next_break = Utc::now() + chrono::Duration::hours(3);
+        let expected_next_break = Utc::now() + chrono::Duration::hours(2);
         let time_diff = (state.next_bathroom_break - expected_next_break)
             .num_seconds()
             .abs();
