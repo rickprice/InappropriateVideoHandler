@@ -96,6 +96,9 @@ impl Config {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let content = fs::read_to_string(path)?;
         let mut config: Config = serde_yaml::from_str(&content)?;
+        config.backgrounds.normal = expand_tilde(config.backgrounds.normal);
+        config.backgrounds.blocked = expand_tilde(config.backgrounds.blocked);
+        config.backgrounds.bathroom_break = expand_tilde(config.backgrounds.bathroom_break);
         config.files.blacklist = expand_tilde(config.files.blacklist);
         config.files.whitelist = expand_tilde(config.files.whitelist);
         config.files.state_file = expand_tilde(config.files.state_file);
