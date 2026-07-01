@@ -77,6 +77,10 @@ impl BrowserManager {
         Ok(())
     }
 
+    pub fn get_pids(&self) -> Vec<i32> {
+        self.find_browser_pids().unwrap_or_default()
+    }
+
     fn find_browser_pids(&self) -> Result<Vec<i32>> {
         if self.process_name.is_empty() {
             if self.debug_level >= 2 {

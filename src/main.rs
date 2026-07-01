@@ -220,9 +220,10 @@ async fn run_daemon(config: &Config, debug_level: u8) -> anyhow::Result<()> {
                 state.is_blocked(), state.in_bathroom_break, state.next_bathroom_break);
         }
 
-        if let Ok(titles) = window_monitor.get_all_window_titles() {
+        let browser_pids = browser_manager.get_pids();
+        if let Ok(titles) = window_monitor.get_browser_window_titles(&browser_pids) {
             if debug_level >= 1 {
-                eprintln!("[DEBUG] Checking {} window title(s) against filter", titles.len());
+                eprintln!("[DEBUG] Checking {} browser window title(s) against filter", titles.len());
             }
             if let Some((matched_title, matched_pattern)) = filter.find_blacklisted_title(&titles) {
                 println!("Blacklisted content detected, killing browser");
