@@ -67,18 +67,38 @@ impl Default for Config {
                 bathroom_break: "/home/user/backgrounds/bathroom.jpg".to_string(),
             },
             files: FileConfig {
-                blacklist: "blacklist.txt".to_string(),
-                whitelist: "whitelist.txt".to_string(),
+                blacklist: format!("{}/inappropriate-video-handler/BlackList.txt", xdg_config_dir()),
+                whitelist: format!("{}/inappropriate-video-handler/WhiteList.txt", xdg_config_dir()),
                 state_file: "/tmp/ivh_state.json".to_string(),
             },
         }
     }
 }
 
+fn xdg_config_dir() -> String {
+    std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| {
+        std::env::var("HOME")
+            .map(|h| format!("{}/.config", h))
+            .unwrap_or_else(|_| "~/.config".to_string())
+    })
+}
+
+fn expand_tilde(path: String) -> String {
+    if path.starts_with("~/") {
+        if let Ok(home) = std::env::var("HOME") {
+            return format!("{}/{}", home, &path[2..]);
+        }
+    }
+    path
+}
+
 impl Config {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let content = fs::read_to_string(path)?;
-        let config: Config = serde_yaml::from_str(&content)?;
+        let mut config: Config = serde_yaml::from_str(&content)?;
+        config.files.blacklist = expand_tilde(config.files.blacklist);
+        config.files.whitelist = expand_tilde(config.files.whitelist);
+        config.files.state_file = expand_tilde(config.files.state_file);
         Ok(config)
     }
 }
@@ -112,8 +132,8 @@ mod tests {
             config.backgrounds.bathroom_break,
             "/home/user/backgrounds/bathroom.jpg"
         );
-        assert_eq!(config.files.blacklist, "blacklist.txt");
-        assert_eq!(config.files.whitelist, "whitelist.txt");
+        assert_eq!(config.files.blacklist, format!("{}/inappropriate-video-handler/BlackList.txt", xdg_config_dir()));
+        assert_eq!(config.files.whitelist, format!("{}/inappropriate-video-handler/WhiteList.txt", xdg_config_dir()));
         assert_eq!(config.files.state_file, "/tmp/ivh_state.json");
     }
 

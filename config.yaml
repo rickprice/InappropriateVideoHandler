@@ -17,6 +17,6 @@ backgrounds:
   bathroom_break: "/home/user/backgrounds/bathroom.jpg"
 
 files:
-  blacklist: "blacklist.txt"
-  whitelist: "whitelist.txt"
+  blacklist: "~/.config/inappropriate-video-handler/BlackList.txt"
+  whitelist: "~/.config/inappropriate-video-handler/WhiteList.txt"
   state_file: "/tmp/ivh_state.json"

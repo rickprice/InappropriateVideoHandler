@@ -39,22 +39,21 @@ async fn main() {
                 .action(clap::ArgAction::SetTrue),
         )
         .arg(
-            Arg::new("daemon")
-                .short('d')
-                .long("daemon")
-                .help("Run in daemon mode (monitor windows)")
-                .action(clap::ArgAction::SetTrue),
-        )
-        .arg(
-            Arg::new("debug")
-                .long("debug")
-                .short('D')
-                .help("Enable debug output (repeat up to 3x for more verbosity: -D, -DD, -DDD)")
-                .action(clap::ArgAction::Count),
+            Arg::new("log-level")
+                .long("log-level")
+                .value_name("LEVEL")
+                .help("Log verbosity level")
+                .value_parser(["error", "warn", "info", "debug", "trace"])
+                .default_value("warn"),
         )
         .get_matches();
 
-    let debug_level = matches.get_count("debug").min(3);
+    let debug_level: u8 = match matches.get_one::<String>("log-level").map(String::as_str) {
+        Some("trace") => 3,
+        Some("debug") => 2,
+        Some("info") => 1,
+        _ => 0,
+    };
 
     let config_path = matches.get_one::<String>("config").unwrap();
     if debug_level >= 1 {
@@ -84,22 +83,19 @@ async fn main() {
     };
 
     let start_browser = matches.get_flag("start-browser");
-    let daemon_mode = matches.get_flag("daemon");
 
     if debug_level >= 1 {
-        eprintln!("[DEBUG] Mode: start_browser={} daemon={}", start_browser, daemon_mode);
+        eprintln!("[DEBUG] Mode: start_browser={}", start_browser);
     }
 
     if start_browser {
         if let Err(e) = handle_start_browser(&config, debug_level).await {
             eprintln!("Error starting browser: {}", e);
         }
-    } else if daemon_mode {
+    } else {
         if let Err(e) = run_daemon(&config, debug_level).await {
             eprintln!("Error running daemon: {}", e);
         }
-    } else {
-        eprintln!("Use --start-browser to start browser or --daemon to monitor windows");
     }
 }
 
