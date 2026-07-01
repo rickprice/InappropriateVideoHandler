@@ -136,6 +136,7 @@ async fn main() {
     debug!("  timeouts.blacklist_timeout_minutes = {}", config.timeouts.blacklist_timeout_minutes);
     debug!("  timeouts.grace_retries = {}", config.timeouts.grace_retries);
     debug!("  timeouts.hard_lock_minutes = {}", config.timeouts.hard_lock_minutes);
+    debug!("  timeouts.retry_reset_minutes = {}", config.timeouts.retry_reset_minutes);
     debug!("  timeouts.bathroom_break_minutes = {}", config.timeouts.bathroom_break_minutes);
     debug!("  timeouts.bathroom_break_interval_hours = {}", config.timeouts.bathroom_break_interval_hours);
     debug!("  files.blacklist = '{}'", config.files.blacklist);
@@ -214,6 +215,7 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
     if state.violation_count > 0 {
         info!("Resetting violation count ({} -> 0) after cooldown expired", state.violation_count);
         state.violation_count = 0;
+        state.violation_window_start = None;
         state.save(&config.files.state_file)?;
         println!("Violation count reset after cooldown — fresh start");
     }
@@ -292,7 +294,22 @@ async fn run_daemon(config: &Config) -> anyhow::Result<()> {
                 warn!("Blacklist hit: title='{}' matched pattern='{}'",
                     matched_title, matched_pattern);
                 browser_manager.kill_browser_processes()?;
+
+                if let Some(window_start) = state.violation_window_start {
+                    let elapsed = Utc::now() - window_start;
+                    if elapsed.num_minutes() >= config.timeouts.retry_reset_minutes as i64 {
+                        info!("Violation window expired ({} minutes elapsed, reset after {}) — resetting count",
+                            elapsed.num_minutes(), config.timeouts.retry_reset_minutes);
+                        state.violation_count = 0;
+                        state.violation_window_start = None;
+                    }
+                }
+
                 state.violation_count += 1;
+
+                if state.violation_window_start.is_none() {
+                    state.violation_window_start = Some(Utc::now());
+                }
 
                 if state.violation_count > config.timeouts.grace_retries {
                     warn!("Grace retries exhausted ({} violations) — hard locking for {} minutes",
@@ -301,6 +318,7 @@ async fn run_daemon(config: &Config) -> anyhow::Result<()> {
                         config.timeouts.hard_lock_minutes);
                     state.block_browser(config.timeouts.hard_lock_minutes);
                     state.violation_count = 0;
+                    state.violation_window_start = None;
                 } else {
                     warn!("Grace retry {}/{} — browser killed, blocking for {} minute(s)",
                         state.violation_count, config.timeouts.grace_retries,

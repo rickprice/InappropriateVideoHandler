@@ -29,6 +29,7 @@ fn create_test_config() -> Config {
             bathroom_break_interval_hours: 1,
             grace_retries: 3,
             hard_lock_minutes: 40,
+            retry_reset_minutes: 20,
         },
         backgrounds: BackgroundConfig {
             normal: "/tmp/test_normal.jpg".to_string(),

@@ -12,6 +12,8 @@ pub struct AppState {
     pub bathroom_break_until: Option<DateTime<Utc>>,
     #[serde(default)]
     pub violation_count: u32,
+    #[serde(default)]
+    pub violation_window_start: Option<DateTime<Utc>>,
 }
 
 impl AppState {
@@ -74,6 +76,7 @@ impl AppState {
             in_bathroom_break: false,
             bathroom_break_until: None,
             violation_count: 0,
+            violation_window_start: None,
         }
     }
 }

@@ -13,6 +13,7 @@ timeouts:
   bathroom_break_interval_hours: 3
   grace_retries: 3
   hard_lock_minutes: 40
+  retry_reset_minutes: 20
 
 backgrounds:
   normal: "~/.config/inappropriate-video-handler/wallpaper/normal.jpg"

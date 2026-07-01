@@ -33,6 +33,8 @@ pub struct TimeoutConfig {
     pub grace_retries: u32,
     #[serde(default = "default_hard_lock_minutes")]
     pub hard_lock_minutes: u64,
+    #[serde(default = "default_retry_reset_minutes")]
+    pub retry_reset_minutes: u64,
 }
 
 fn default_grace_retries() -> u32 {
@@ -41,6 +43,10 @@ fn default_grace_retries() -> u32 {
 
 fn default_hard_lock_minutes() -> u64 {
     40
+}
+
+fn default_retry_reset_minutes() -> u64 {
+    20
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -86,6 +92,7 @@ impl Default for Config {
                 bathroom_break_interval_hours: 3,
                 grace_retries: 3,
                 hard_lock_minutes: 40,
+                retry_reset_minutes: 20,
             },
             backgrounds: BackgroundConfig {
                 normal: format!("{}/inappropriate-video-handler/wallpaper/normal.jpg", xdg_config_dir()),
@@ -288,6 +295,7 @@ browser:
             bathroom_break_interval_hours: 4,
             grace_retries: 3,
             hard_lock_minutes: 40,
+            retry_reset_minutes: 20,
         };
 
         assert_eq!(config.blacklist_timeout_minutes, 20);
