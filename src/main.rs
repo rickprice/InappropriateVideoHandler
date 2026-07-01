@@ -8,6 +8,10 @@ mod window_monitor;
 use chrono::Utc;
 use clap::{Arg, Command};
 use log::{debug, error, info, warn};
+use std::collections::BTreeSet;
+use std::fs;
+use std::io::Write as _;
+use std::path::Path;
 use std::sync::Arc;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::time::{sleep, Duration};
@@ -18,6 +22,66 @@ use config::Config;
 use filter::Filter;
 use state::AppState;
 use window_monitor::WindowMonitor;
+
+fn init_logging(log_level: &str, log_file: &str) -> anyhow::Result<()> {
+    let level_filter = log_level.parse().unwrap_or(log::LevelFilter::Warn);
+
+    if let Some(parent) = Path::new(log_file).parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let file = fern::log_file(log_file)?;
+
+    fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "[{}] [{}] {}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                record.level(),
+                message
+            ))
+        })
+        .level(level_filter)
+        .chain(std::io::stderr())
+        .chain(file)
+        .apply()?;
+
+    Ok(())
+}
+
+fn record_titles(titles_file: &str, titles: &[String]) -> anyhow::Result<()> {
+    let mut existing: BTreeSet<String> = BTreeSet::new();
+
+    if let Ok(content) = fs::read_to_string(titles_file) {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                existing.insert(trimmed.to_string());
+            }
+        }
+    }
+
+    let before = existing.len();
+    for title in titles {
+        existing.insert(title.clone());
+    }
+
+    if existing.len() != before {
+        if let Some(parent) = Path::new(titles_file).parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(titles_file)?;
+        for title in &existing {
+            writeln!(file, "{}", title)?;
+        }
+    }
+
+    Ok(())
+}
 
 #[tokio::main]
 async fn main() {
@@ -45,37 +109,40 @@ async fn main() {
                 .value_name("LEVEL")
                 .help("Log verbosity level")
                 .value_parser(["error", "warn", "info", "debug", "trace"])
-                .default_value("warn"),
+                .default_value("info"),
         )
         .get_matches();
 
-    let log_level = matches.get_one::<String>("log-level").map(String::as_str).unwrap_or("warn");
-    env_logger::Builder::new()
-        .filter_level(log_level.parse().unwrap_or(log::LevelFilter::Warn))
-        .init();
-
+    let log_level = matches.get_one::<String>("log-level").map(String::as_str).unwrap_or("info");
     let config_path = matches.get_one::<String>("config").unwrap();
-    info!("Loading config from '{}'", config_path);
+
     let config = match Config::load(config_path) {
-        Ok(config) => {
-            info!("Config loaded successfully");
-            debug!("  browser.executable = '{}'", config.browser.executable);
-            debug!("  browser.process_name = '{}'", config.browser.process_name);
-            debug!("  browser.url = '{}'", config.browser.url);
-            debug!("  monitoring.check_frequency_seconds = {}", config.monitoring.check_frequency_seconds);
-            debug!("  timeouts.blacklist_timeout_minutes = {}", config.timeouts.blacklist_timeout_minutes);
-            debug!("  timeouts.bathroom_break_minutes = {}", config.timeouts.bathroom_break_minutes);
-            debug!("  timeouts.bathroom_break_interval_hours = {}", config.timeouts.bathroom_break_interval_hours);
-            debug!("  files.blacklist = '{}'", config.files.blacklist);
-            debug!("  files.whitelist = '{}'", config.files.whitelist);
-            debug!("  files.state_file = '{}'", config.files.state_file);
-            config
-        }
+        Ok(config) => config,
         Err(e) => {
-            warn!("Failed to load config ({}), using defaults", e);
+            eprintln!("Failed to load config ({}), using defaults", e);
             Config::default()
         }
     };
+
+    if let Err(e) = init_logging(log_level, &config.files.log_file) {
+        eprintln!("Failed to initialise logger: {}", e);
+    }
+
+    info!("Config loaded from '{}'", config_path);
+    debug!("  browser.executable = '{}'", config.browser.executable);
+    debug!("  browser.process_name = '{}'", config.browser.process_name);
+    debug!("  browser.url = '{}'", config.browser.url);
+    debug!("  monitoring.check_frequency_seconds = {}", config.monitoring.check_frequency_seconds);
+    debug!("  timeouts.blacklist_timeout_minutes = {}", config.timeouts.blacklist_timeout_minutes);
+    debug!("  timeouts.grace_retries = {}", config.timeouts.grace_retries);
+    debug!("  timeouts.hard_lock_minutes = {}", config.timeouts.hard_lock_minutes);
+    debug!("  timeouts.bathroom_break_minutes = {}", config.timeouts.bathroom_break_minutes);
+    debug!("  timeouts.bathroom_break_interval_hours = {}", config.timeouts.bathroom_break_interval_hours);
+    debug!("  files.blacklist = '{}'", config.files.blacklist);
+    debug!("  files.whitelist = '{}'", config.files.whitelist);
+    debug!("  files.state_file = '{}'", config.files.state_file);
+    debug!("  files.log_file = '{}'", config.files.log_file);
+    debug!("  files.titles_file = '{}'", config.files.titles_file);
 
     let start_browser = matches.get_flag("start-browser");
     info!("Mode: start_browser={}", start_browser);
@@ -95,7 +162,8 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
     info!("Loading state from '{}'", config.files.state_file);
     let mut state = AppState::load(&config.files.state_file)?;
 
-    info!("State loaded: blocked={} in_bathroom_break={}", state.is_blocked(), state.in_bathroom_break);
+    info!("State loaded: blocked={} in_bathroom_break={} violation_count={}",
+        state.is_blocked(), state.in_bathroom_break, state.violation_count);
     debug!("  next_bathroom_break = {}", state.next_bathroom_break);
     if let Some(until) = state.blocked_until {
         debug!("  blocked_until = {}", until);
@@ -143,13 +211,26 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
 
     bg.set_normal_background(&config.backgrounds.normal)?;
 
+    if state.violation_count > 0 {
+        info!("Resetting violation count ({} -> 0) after cooldown expired", state.violation_count);
+        state.violation_count = 0;
+        state.save(&config.files.state_file)?;
+        println!("Violation count reset after cooldown — fresh start");
+    }
+
+    info!("Starting browser: executable='{}' url='{}'",
+        config.browser.executable, config.browser.url);
+
     let browser_manager = BrowserManager::new(
         config.browser.executable.clone(),
         config.browser.process_name.clone(),
     );
 
     match browser_manager.start_browser(&config.browser.url) {
-        Ok(_) => println!("Browser started successfully"),
+        Ok(_) => {
+            println!("Browser started successfully");
+            info!("Browser started successfully");
+        }
         Err(e) => error!("Failed to start browser: {}", e),
     }
 
@@ -178,6 +259,7 @@ async fn run_daemon(config: &Config) -> anyhow::Result<()> {
     let mut sigterm = signal(SignalKind::terminate())?;
 
     println!("Starting daemon mode...");
+    info!("Daemon started");
 
     let initial_state = AppState::load(&config.files.state_file)?;
     let bg = BackgroundManager::new();
@@ -193,19 +275,41 @@ async fn run_daemon(config: &Config) -> anyhow::Result<()> {
         debug!("--- daemon tick ---");
         let mut state = AppState::load(&config.files.state_file)?;
 
-        debug!("State: blocked={} in_bathroom_break={} next_break={}",
-            state.is_blocked(), state.in_bathroom_break, state.next_bathroom_break);
+        debug!("State: blocked={} in_bathroom_break={} violation_count={} next_break={}",
+            state.is_blocked(), state.in_bathroom_break, state.violation_count,
+            state.next_bathroom_break);
 
         let browser_pids = browser_manager.get_pids();
         if let Ok(titles) = window_monitor.get_browser_window_titles(&browser_pids) {
-            info!("Checking {} browser window title(s) against filter", titles.len());
+            if !titles.is_empty() {
+                info!("Checking {} browser window title(s) against filter", titles.len());
+                if let Err(e) = record_titles(&config.files.titles_file, &titles) {
+                    warn!("Failed to record window titles: {}", e);
+                }
+            }
+
             if let Some((matched_title, matched_pattern)) = filter.find_blacklisted_title(&titles) {
-                println!("Blacklisted content detected, killing browser");
-                info!("Blacklist hit: title='{}' matched pattern='{}'",
+                warn!("Blacklist hit: title='{}' matched pattern='{}'",
                     matched_title, matched_pattern);
                 browser_manager.kill_browser_processes()?;
-                state.block_browser(config.timeouts.blacklist_timeout_minutes);
-                info!("Browser blocked for {} minute(s)", config.timeouts.blacklist_timeout_minutes);
+                state.violation_count += 1;
+
+                if state.violation_count > config.timeouts.grace_retries {
+                    warn!("Grace retries exhausted ({} violations) — hard locking for {} minutes",
+                        state.violation_count, config.timeouts.hard_lock_minutes);
+                    println!("Blacklisted content detected — grace retries exhausted, hard locking for {} minutes",
+                        config.timeouts.hard_lock_minutes);
+                    state.block_browser(config.timeouts.hard_lock_minutes);
+                    state.violation_count = 0;
+                } else {
+                    warn!("Grace retry {}/{} — browser killed, blocking for {} minute(s)",
+                        state.violation_count, config.timeouts.grace_retries,
+                        config.timeouts.blacklist_timeout_minutes);
+                    println!("Blacklisted content detected — grace retry {}/{}, browser killed",
+                        state.violation_count, config.timeouts.grace_retries);
+                    state.block_browser(config.timeouts.blacklist_timeout_minutes);
+                }
+
                 state.save(&config.files.state_file)?;
                 let bg = BackgroundManager::new();
                 bg.set_blocked_background(&config.backgrounds.blocked)?;
@@ -245,6 +349,7 @@ async fn run_daemon(config: &Config) -> anyhow::Result<()> {
             _ = sleep(Duration::from_secs(config.monitoring.check_frequency_seconds)) => {}
             _ = sigterm.recv() => {
                 println!("Received SIGTERM, shutting down");
+                info!("Daemon stopped via SIGTERM");
                 return Ok(());
             }
         }

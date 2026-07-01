@@ -11,6 +11,8 @@ timeouts:
   blacklist_timeout_minutes: 10
   bathroom_break_minutes: 10
   bathroom_break_interval_hours: 3
+  grace_retries: 3
+  hard_lock_minutes: 40
 
 backgrounds:
   normal: "~/.config/inappropriate-video-handler/wallpaper/normal.jpg"
@@ -20,4 +22,6 @@ backgrounds:
 files:
   blacklist: "~/.config/inappropriate-video-handler/BlackList.txt"
   whitelist: "~/.config/inappropriate-video-handler/WhiteList.txt"
-  state_file: "/tmp/ivh_state.json"
+  state_file: "~/.cache/inappropriate-video-handler/state.json"
+  log_file: "~/.cache/inappropriate-video-handler/ivh.log"
+  titles_file: "~/.cache/inappropriate-video-handler/window-titles.txt"

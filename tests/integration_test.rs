@@ -27,6 +27,8 @@ fn create_test_config() -> Config {
             blacklist_timeout_minutes: 5,
             bathroom_break_minutes: 2,
             bathroom_break_interval_hours: 1,
+            grace_retries: 3,
+            hard_lock_minutes: 40,
         },
         backgrounds: BackgroundConfig {
             normal: "/tmp/test_normal.jpg".to_string(),
@@ -36,7 +38,9 @@ fn create_test_config() -> Config {
         files: FileConfig {
             blacklist: "test_blacklist.txt".to_string(),
             whitelist: "test_whitelist.txt".to_string(),
-            state_file: "/tmp/test_state.json".to_string(),
+            state_file: "/tmp/ivh_test/state.json".to_string(),
+            log_file: "/tmp/ivh_test/ivh.log".to_string(),
+            titles_file: "/tmp/ivh_test/window-titles.txt".to_string(),
         },
     }
 }

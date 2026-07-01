@@ -10,6 +10,8 @@ pub struct AppState {
     pub next_bathroom_break: DateTime<Utc>,
     pub in_bathroom_break: bool,
     pub bathroom_break_until: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub violation_count: u32,
 }
 
 impl AppState {
@@ -24,6 +26,9 @@ impl AppState {
     }
 
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        if let Some(parent) = path.as_ref().parent() {
+            fs::create_dir_all(parent)?;
+        }
         let content = serde_json::to_string_pretty(self)?;
         fs::write(path, content)?;
         Ok(())
@@ -68,6 +73,7 @@ impl AppState {
             next_bathroom_break: Utc::now() + chrono::Duration::hours(3),
             in_bathroom_break: false,
             bathroom_break_until: None,
+            violation_count: 0,
         }
     }
 }
