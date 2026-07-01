@@ -50,7 +50,7 @@ impl Default for Config {
         Config {
             browser: BrowserConfig {
                 executable: "google-chrome-stable".to_string(),
-                url: "https://www.google.com".to_string(),
+                url: "https://www.youtube.com".to_string(),
                 process_name: "chrome".to_string(),
             },
             monitoring: MonitoringConfig {
@@ -117,7 +117,7 @@ mod tests {
         let config = Config::default();
 
         assert_eq!(config.browser.executable, "google-chrome-stable");
-        assert_eq!(config.browser.url, "https://www.google.com");
+        assert_eq!(config.browser.url, "https://www.youtube.com");
         assert_eq!(config.browser.process_name, "chrome");
         assert_eq!(config.monitoring.check_frequency_seconds, 60);
         assert_eq!(config.timeouts.blacklist_timeout_minutes, 10);

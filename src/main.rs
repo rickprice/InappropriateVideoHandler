@@ -104,15 +104,14 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
         debug!("  bathroom_break_until = {}", until);
     }
 
+    let bg = BackgroundManager::new();
+
     if state.is_blocked() {
         println!("Browser is currently blocked");
         info!("Browser blocked until {:?}", state.blocked_until);
-        let bg = BackgroundManager::new();
         bg.set_blocked_background(&config.backgrounds.blocked)?;
         return Ok(());
     }
-
-    let bg = BackgroundManager::new();
 
     if state.is_bathroom_break_time(config.timeouts.bathroom_break_interval_hours) {
         if !state.in_bathroom_break {
@@ -179,6 +178,16 @@ async fn run_daemon(config: &Config) -> anyhow::Result<()> {
     let mut sigterm = signal(SignalKind::terminate())?;
 
     println!("Starting daemon mode...");
+
+    let initial_state = AppState::load(&config.files.state_file)?;
+    let bg = BackgroundManager::new();
+    if initial_state.is_blocked() {
+        bg.set_blocked_background(&config.backgrounds.blocked)?;
+    } else if initial_state.is_bathroom_break_time(config.timeouts.bathroom_break_interval_hours) {
+        bg.set_bathroom_break_background(&config.backgrounds.bathroom_break)?;
+    } else {
+        bg.set_normal_background(&config.backgrounds.normal)?;
+    }
 
     loop {
         debug!("--- daemon tick ---");

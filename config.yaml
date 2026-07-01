@@ -1,6 +1,6 @@
 browser:
   executable: "google-chrome-stable"
-  url: "https://www.google.com"
+  url: "https://www.youtube.com"
   process_name: "chrome"
 
 

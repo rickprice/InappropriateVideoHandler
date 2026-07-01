@@ -37,7 +37,7 @@ cargo build --release
 ./target/release/inappropriate-video-handler --start-browser
 ```
 
-Use this command as the browser launcher in your desktop environment instead of calling Chrome directly. It will refuse to open the browser if a block or break is active.
+Use this command as the browser launcher in your desktop environment instead of calling Chrome directly. It always sets the desktop wallpaper to reflect the current state, and will refuse to open the browser if a block or break is active.
 
 ### Custom config file
 
@@ -54,7 +54,7 @@ All configuration lives in `config.yaml` (default location, overridable with `-c
 ```yaml
 browser:
   executable: "google-chrome-stable"   # Command used to launch the browser
-  url: "https://www.google.com"        # URL opened by --start-browser
+  url: "https://www.youtube.com"        # URL opened by --start-browser
   process_name: "chrome"               # Process name used to find and kill Chrome
 
 monitoring:
@@ -81,7 +81,7 @@ files:
 | Key | Description | Default |
 |-----|-------------|---------|
 | `browser.executable` | Path or name of the browser binary | `google-chrome-stable` |
-| `browser.url` | URL opened when `--start-browser` is used | `https://www.google.com` |
+| `browser.url` | URL opened when `--start-browser` is used | `https://www.youtube.com` |
 | `browser.process_name` | Process name matched by `pgrep` to kill the browser | `chrome` |
 
 | `monitoring.check_frequency_seconds` | Seconds between each title check | `60` |
@@ -148,7 +148,7 @@ Log output goes to **stderr**. Use `--log-level debug` to verify which window ti
 
 ## How It Works
 
-1. The daemon starts and loads config, filter patterns, and persisted state.
+1. The daemon starts, loads config, filter patterns, and persisted state, then sets the desktop wallpaper to reflect the current state (normal, blocked, or bathroom break).
 2. Every `check_frequency_seconds` it finds all Chrome process IDs with `pgrep`.
 3. It queries the X11 window tree for windows belonging to those PIDs and collects their titles.
 4. If `remote_debugging_port` is set, it also fetches all tab titles from Chrome's debug API.
