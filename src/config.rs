@@ -62,9 +62,9 @@ impl Default for Config {
                 bathroom_break_interval_hours: 3,
             },
             backgrounds: BackgroundConfig {
-                normal: "/home/user/backgrounds/normal.jpg".to_string(),
-                blocked: "/home/user/backgrounds/blocked.jpg".to_string(),
-                bathroom_break: "/home/user/backgrounds/bathroom.jpg".to_string(),
+                normal: format!("{}/inappropriate-video-handler/wallpapers/normal.jpg", xdg_config_dir()),
+                blocked: format!("{}/inappropriate-video-handler/wallpapers/blocked.jpg", xdg_config_dir()),
+                bathroom_break: format!("{}/inappropriate-video-handler/wallpapers/bathroom.jpg", xdg_config_dir()),
             },
             files: FileConfig {
                 blacklist: format!("{}/inappropriate-video-handler/BlackList.txt", xdg_config_dir()),
@@ -122,15 +122,15 @@ mod tests {
         assert_eq!(config.timeouts.bathroom_break_interval_hours, 3);
         assert_eq!(
             config.backgrounds.normal,
-            "/home/user/backgrounds/normal.jpg"
+            format!("{}/inappropriate-video-handler/wallpapers/normal.jpg", xdg_config_dir())
         );
         assert_eq!(
             config.backgrounds.blocked,
-            "/home/user/backgrounds/blocked.jpg"
+            format!("{}/inappropriate-video-handler/wallpapers/blocked.jpg", xdg_config_dir())
         );
         assert_eq!(
             config.backgrounds.bathroom_break,
-            "/home/user/backgrounds/bathroom.jpg"
+            format!("{}/inappropriate-video-handler/wallpapers/bathroom.jpg", xdg_config_dir())
         );
         assert_eq!(config.files.blacklist, format!("{}/inappropriate-video-handler/BlackList.txt", xdg_config_dir()));
         assert_eq!(config.files.whitelist, format!("{}/inappropriate-video-handler/WhiteList.txt", xdg_config_dir()));
