@@ -13,9 +13,9 @@ timeouts:
   bathroom_break_interval_hours: 3
 
 backgrounds:
-  normal: "~/.config/inappropriate-video-handler/wallpapers/normal.jpg"
-  blocked: "~/.config/inappropriate-video-handler/wallpapers/blocked.jpg"
-  bathroom_break: "~/.config/inappropriate-video-handler/wallpapers/bathroom.jpg"
+  normal: "~/.config/inappropriate-video-handler/wallpaper/normal.jpg"
+  blocked: "~/.config/inappropriate-video-handler/wallpaper/blocked.jpg"
+  bathroom_break: "~/.config/inappropriate-video-handler/wallpaper/bathroom.jpg"
 
 files:
   blacklist: "~/.config/inappropriate-video-handler/BlackList.txt"
