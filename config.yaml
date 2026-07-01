@@ -3,6 +3,7 @@ browser:
   url: "https://www.google.com"
   process_name: "chrome"
 
+
 monitoring:
   check_frequency_seconds: 60
 

@@ -23,6 +23,8 @@ x11 = { version = "2.21", features = ["xlib"] }
 libc = "0.2"
 nix = { version = "0.31", features = ["signal", "process"] }
 anyhow = "1.0"
+log = "0.4"
+env_logger = "0.11"
 
 [build-dependencies]
 pkg-config = "0.3"

@@ -1,35 +1,29 @@
 use anyhow::{anyhow, Result};
+use log::{debug, info, trace};
 use std::ffi::CStr;
 use std::ptr;
 use x11::xlib::*;
 
 pub struct WindowMonitor {
     display: *mut Display,
-    debug_level: u8,
 }
 
 impl WindowMonitor {
-    pub fn new(debug_level: u8) -> Result<Self> {
-        if debug_level >= 1 {
-            eprintln!("[DEBUG] Opening X11 display");
-        }
+    pub fn new() -> Result<Self> {
+        info!("Opening X11 display");
         unsafe {
             let display = XOpenDisplay(ptr::null());
             if display.is_null() {
                 return Err(anyhow!("Failed to open X11 display"));
             }
-            if debug_level >= 1 {
-                eprintln!("[DEBUG] X11 display opened successfully");
-            }
-            Ok(WindowMonitor { display, debug_level })
+            info!("X11 display opened successfully");
+            Ok(WindowMonitor { display })
         }
     }
 
     #[allow(dead_code)]
     pub fn get_active_window_title(&self) -> Result<String> {
-        if self.debug_level >= 2 {
-            eprintln!("[DEBUG2] get_active_window_title: querying input focus");
-        }
+        debug!("get_active_window_title: querying input focus");
         unsafe {
             let root = XDefaultRootWindow(self.display);
             let mut window: Window = 0;
@@ -38,24 +32,18 @@ impl WindowMonitor {
             XGetInputFocus(self.display, &mut window, &mut revert_to);
 
             if window == 0 || window == root {
-                if self.debug_level >= 2 {
-                    eprintln!("[DEBUG2] get_active_window_title: no focused window");
-                }
+                debug!("get_active_window_title: no focused window");
                 return Ok(String::new());
             }
 
             let title = self.get_window_title(window)?;
-            if self.debug_level >= 2 {
-                eprintln!("[DEBUG2] Active window title: '{}'", title);
-            }
+            debug!("Active window title: '{}'", title);
             Ok(title)
         }
     }
 
     pub fn get_browser_window_titles(&self, browser_pids: &[i32]) -> Result<Vec<String>> {
-        if self.debug_level >= 2 {
-            eprintln!("[DEBUG2] get_browser_window_titles: checking against pids {:?}", browser_pids);
-        }
+        debug!("get_browser_window_titles: checking against pids {:?}", browser_pids);
         unsafe {
             let root = XDefaultRootWindow(self.display);
             let mut children: *mut Window = ptr::null_mut();
@@ -76,9 +64,7 @@ impl WindowMonitor {
                 return Err(anyhow!("Failed to query window tree"));
             }
 
-            if self.debug_level >= 2 {
-                eprintln!("[DEBUG2] XQueryTree returned {} child window(s)", nchildren);
-            }
+            debug!("XQueryTree returned {} child window(s)", nchildren);
 
             let mut titles = Vec::new();
 
@@ -88,19 +74,25 @@ impl WindowMonitor {
                     if browser_pids.contains(&pid) {
                         if let Ok(title) = self.get_window_title(window) {
                             if !title.is_empty() {
-                                if self.debug_level >= 3 {
-                                    eprintln!("[DEBUG3]   Browser window {} (pid {}): '{}'", i, pid, title);
+                                if log::log_enabled!(log::Level::Trace) {
+                                    trace!("Browser window title (pid {}): '{}'", pid, title);
+                                } else {
+                                    debug!("Browser window title: '{}'", title);
                                 }
                                 titles.push(title);
+                            }
+                        }
+                    } else if log::log_enabled!(log::Level::Trace) {
+                        if let Ok(title) = self.get_window_title(window) {
+                            if !title.is_empty() {
+                                trace!("Non-browser window {} (pid {}): '{}'", i, pid, title);
                             }
                         }
                     }
                 }
             }
 
-            if self.debug_level >= 1 {
-                eprintln!("[DEBUG] get_browser_window_titles: {} non-empty title(s) found", titles.len());
-            }
+            info!("get_browser_window_titles: {} non-empty title(s) found", titles.len());
 
             if !children.is_null() {
                 XFree(children as *mut _);
@@ -112,9 +104,7 @@ impl WindowMonitor {
 
     #[allow(dead_code)]
     pub fn get_all_window_titles(&self) -> Result<Vec<String>> {
-        if self.debug_level >= 2 {
-            eprintln!("[DEBUG2] get_all_window_titles: querying window tree");
-        }
+        debug!("get_all_window_titles: querying window tree");
         unsafe {
             let root = XDefaultRootWindow(self.display);
             let mut children: *mut Window = ptr::null_mut();
@@ -135,9 +125,7 @@ impl WindowMonitor {
                 return Err(anyhow!("Failed to query window tree"));
             }
 
-            if self.debug_level >= 2 {
-                eprintln!("[DEBUG2] XQueryTree returned {} child window(s)", nchildren);
-            }
+            debug!("XQueryTree returned {} child window(s)", nchildren);
 
             let mut titles = Vec::new();
 
@@ -145,17 +133,13 @@ impl WindowMonitor {
                 let window = *children.offset(i as isize);
                 if let Ok(title) = self.get_window_title(window) {
                     if !title.is_empty() {
-                        if self.debug_level >= 3 {
-                            eprintln!("[DEBUG3]   Window {}: '{}'", i, title);
-                        }
+                        trace!("Window {}: '{}'", i, title);
                         titles.push(title);
                     }
                 }
             }
 
-            if self.debug_level >= 1 {
-                eprintln!("[DEBUG] get_all_window_titles: {} non-empty title(s) found", titles.len());
-            }
+            info!("get_all_window_titles: {} non-empty title(s) found", titles.len());
 
             if !children.is_null() {
                 XFree(children as *mut _);

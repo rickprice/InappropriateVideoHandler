@@ -7,6 +7,7 @@ mod window_monitor;
 
 use chrono::Utc;
 use clap::{Arg, Command};
+use log::{debug, error, info, warn};
 use std::sync::Arc;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::time::{sleep, Duration};
@@ -48,93 +49,76 @@ async fn main() {
         )
         .get_matches();
 
-    let debug_level: u8 = match matches.get_one::<String>("log-level").map(String::as_str) {
-        Some("trace") => 3,
-        Some("debug") => 2,
-        Some("info") => 1,
-        _ => 0,
-    };
+    let log_level = matches.get_one::<String>("log-level").map(String::as_str).unwrap_or("warn");
+    env_logger::Builder::new()
+        .filter_level(log_level.parse().unwrap_or(log::LevelFilter::Warn))
+        .init();
 
     let config_path = matches.get_one::<String>("config").unwrap();
-    if debug_level >= 1 {
-        eprintln!("[DEBUG] Loading config from '{}'", config_path);
-    }
+    info!("Loading config from '{}'", config_path);
     let config = match Config::load(config_path) {
         Ok(config) => {
-            if debug_level >= 1 {
-                eprintln!("[DEBUG] Config loaded successfully");
-                eprintln!("[DEBUG]   browser.executable = '{}'", config.browser.executable);
-                eprintln!("[DEBUG]   browser.process_name = '{}'", config.browser.process_name);
-                eprintln!("[DEBUG]   browser.url = '{}'", config.browser.url);
-                eprintln!("[DEBUG]   monitoring.check_frequency_seconds = {}", config.monitoring.check_frequency_seconds);
-                eprintln!("[DEBUG]   timeouts.blacklist_timeout_minutes = {}", config.timeouts.blacklist_timeout_minutes);
-                eprintln!("[DEBUG]   timeouts.bathroom_break_minutes = {}", config.timeouts.bathroom_break_minutes);
-                eprintln!("[DEBUG]   timeouts.bathroom_break_interval_hours = {}", config.timeouts.bathroom_break_interval_hours);
-                eprintln!("[DEBUG]   files.blacklist = '{}'", config.files.blacklist);
-                eprintln!("[DEBUG]   files.whitelist = '{}'", config.files.whitelist);
-                eprintln!("[DEBUG]   files.state_file = '{}'", config.files.state_file);
-            }
+            info!("Config loaded successfully");
+            debug!("  browser.executable = '{}'", config.browser.executable);
+            debug!("  browser.process_name = '{}'", config.browser.process_name);
+            debug!("  browser.url = '{}'", config.browser.url);
+            debug!("  monitoring.check_frequency_seconds = {}", config.monitoring.check_frequency_seconds);
+            debug!("  timeouts.blacklist_timeout_minutes = {}", config.timeouts.blacklist_timeout_minutes);
+            debug!("  timeouts.bathroom_break_minutes = {}", config.timeouts.bathroom_break_minutes);
+            debug!("  timeouts.bathroom_break_interval_hours = {}", config.timeouts.bathroom_break_interval_hours);
+            debug!("  files.blacklist = '{}'", config.files.blacklist);
+            debug!("  files.whitelist = '{}'", config.files.whitelist);
+            debug!("  files.state_file = '{}'", config.files.state_file);
             config
         }
         Err(e) => {
-            eprintln!("Failed to load config ({}), using defaults", e);
+            warn!("Failed to load config ({}), using defaults", e);
             Config::default()
         }
     };
 
     let start_browser = matches.get_flag("start-browser");
-
-    if debug_level >= 1 {
-        eprintln!("[DEBUG] Mode: start_browser={}", start_browser);
-    }
+    info!("Mode: start_browser={}", start_browser);
 
     if start_browser {
-        if let Err(e) = handle_start_browser(&config, debug_level).await {
-            eprintln!("Error starting browser: {}", e);
+        if let Err(e) = handle_start_browser(&config).await {
+            error!("Error starting browser: {}", e);
         }
     } else {
-        if let Err(e) = run_daemon(&config, debug_level).await {
-            eprintln!("Error running daemon: {}", e);
+        if let Err(e) = run_daemon(&config).await {
+            error!("Error running daemon: {}", e);
         }
     }
 }
 
-async fn handle_start_browser(config: &Config, debug_level: u8) -> anyhow::Result<()> {
-    if debug_level >= 1 {
-        eprintln!("[DEBUG] Loading state from '{}'", config.files.state_file);
-    }
+async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
+    info!("Loading state from '{}'", config.files.state_file);
     let mut state = AppState::load(&config.files.state_file)?;
 
-    if debug_level >= 1 {
-        eprintln!("[DEBUG] State loaded: blocked={} in_bathroom_break={}", state.is_blocked(), state.in_bathroom_break);
-        eprintln!("[DEBUG]   next_bathroom_break = {}", state.next_bathroom_break);
-        if let Some(until) = state.blocked_until {
-            eprintln!("[DEBUG]   blocked_until = {}", until);
-        }
-        if let Some(until) = state.bathroom_break_until {
-            eprintln!("[DEBUG]   bathroom_break_until = {}", until);
-        }
+    info!("State loaded: blocked={} in_bathroom_break={}", state.is_blocked(), state.in_bathroom_break);
+    debug!("  next_bathroom_break = {}", state.next_bathroom_break);
+    if let Some(until) = state.blocked_until {
+        debug!("  blocked_until = {}", until);
+    }
+    if let Some(until) = state.bathroom_break_until {
+        debug!("  bathroom_break_until = {}", until);
     }
 
     if state.is_blocked() {
         println!("Browser is currently blocked");
-        if debug_level >= 1 {
-            eprintln!("[DEBUG] Browser blocked until {:?}", state.blocked_until);
-        }
-        let bg = BackgroundManager::new(debug_level);
+        info!("Browser blocked until {:?}", state.blocked_until);
+        let bg = BackgroundManager::new();
         bg.set_blocked_background(&config.backgrounds.blocked)?;
         return Ok(());
     }
 
-    let bg = BackgroundManager::new(debug_level);
+    let bg = BackgroundManager::new();
 
     if state.is_bathroom_break_time(config.timeouts.bathroom_break_interval_hours) {
         if !state.in_bathroom_break {
-            if debug_level >= 1 {
-                eprintln!("[DEBUG] Starting bathroom break: duration={}m interval={}h",
-                    config.timeouts.bathroom_break_minutes,
-                    config.timeouts.bathroom_break_interval_hours);
-            }
+            info!("Starting bathroom break: duration={}m interval={}h",
+                config.timeouts.bathroom_break_minutes,
+                config.timeouts.bathroom_break_interval_hours);
             state.start_bathroom_break(
                 config.timeouts.bathroom_break_minutes,
                 config.timeouts.bathroom_break_interval_hours,
@@ -146,15 +130,11 @@ async fn handle_start_browser(config: &Config, debug_level: u8) -> anyhow::Resul
             if let Some(until) = state.bathroom_break_until {
                 if Utc::now() < until {
                     println!("It's bathroom break time");
-                    if debug_level >= 1 {
-                        eprintln!("[DEBUG] Bathroom break active until {}", until);
-                    }
+                    info!("Bathroom break active until {}", until);
                     bg.set_bathroom_break_background(&config.backgrounds.bathroom_break)?;
                     return Ok(());
                 } else {
-                    if debug_level >= 1 {
-                        eprintln!("[DEBUG] Bathroom break expired, ending break");
-                    }
+                    info!("Bathroom break expired, ending break");
                     state.end_bathroom_break();
                     state.save(&config.files.state_file)?;
                 }
@@ -167,42 +147,33 @@ async fn handle_start_browser(config: &Config, debug_level: u8) -> anyhow::Resul
     let browser_manager = BrowserManager::new(
         config.browser.executable.clone(),
         config.browser.process_name.clone(),
-        debug_level,
     );
 
     match browser_manager.start_browser(&config.browser.url) {
         Ok(_) => println!("Browser started successfully"),
-        Err(e) => eprintln!("Failed to start browser: {}", e),
+        Err(e) => error!("Failed to start browser: {}", e),
     }
 
     Ok(())
 }
 
-async fn run_daemon(config: &Config, debug_level: u8) -> anyhow::Result<()> {
-    if debug_level >= 1 {
-        eprintln!("[DEBUG] Initialising window monitor");
-    }
-    let window_monitor = Arc::new(WindowMonitor::new(debug_level)?);
+async fn run_daemon(config: &Config) -> anyhow::Result<()> {
+    info!("Initialising window monitor");
+    let window_monitor = Arc::new(WindowMonitor::new()?);
 
-    if debug_level >= 1 {
-        eprintln!("[DEBUG] Loading filter patterns from '{}' (blacklist) and '{}' (whitelist)",
-            config.files.blacklist, config.files.whitelist);
-    }
+    info!("Loading filter patterns from '{}' (blacklist) and '{}' (whitelist)",
+        config.files.blacklist, config.files.whitelist);
     let filter = Arc::new(Filter::new(
         &config.files.blacklist,
         &config.files.whitelist,
-        debug_level,
     )?);
 
-    if debug_level >= 1 {
-        eprintln!("[DEBUG] Filter loaded: {} blacklist pattern(s), {} whitelist pattern(s)",
-            filter.blacklist_len(), filter.whitelist_len());
-    }
+    info!("Filter loaded: {} blacklist pattern(s), {} whitelist pattern(s)",
+        filter.blacklist_len(), filter.whitelist_len());
 
     let browser_manager = Arc::new(BrowserManager::new(
         config.browser.executable.clone(),
         config.browser.process_name.clone(),
-        debug_level,
     ));
 
     let mut sigterm = signal(SignalKind::terminate())?;
@@ -210,34 +181,24 @@ async fn run_daemon(config: &Config, debug_level: u8) -> anyhow::Result<()> {
     println!("Starting daemon mode...");
 
     loop {
-        if debug_level >= 2 {
-            eprintln!("[DEBUG2] --- daemon tick ---");
-        }
+        debug!("--- daemon tick ---");
         let mut state = AppState::load(&config.files.state_file)?;
 
-        if debug_level >= 2 {
-            eprintln!("[DEBUG2] State: blocked={} in_bathroom_break={} next_break={}",
-                state.is_blocked(), state.in_bathroom_break, state.next_bathroom_break);
-        }
+        debug!("State: blocked={} in_bathroom_break={} next_break={}",
+            state.is_blocked(), state.in_bathroom_break, state.next_bathroom_break);
 
         let browser_pids = browser_manager.get_pids();
         if let Ok(titles) = window_monitor.get_browser_window_titles(&browser_pids) {
-            if debug_level >= 1 {
-                eprintln!("[DEBUG] Checking {} browser window title(s) against filter", titles.len());
-            }
+            info!("Checking {} browser window title(s) against filter", titles.len());
             if let Some((matched_title, matched_pattern)) = filter.find_blacklisted_title(&titles) {
                 println!("Blacklisted content detected, killing browser");
-                if debug_level >= 1 {
-                    eprintln!("[DEBUG] Blacklist hit: title='{}' matched pattern='{}'",
-                        matched_title, matched_pattern);
-                }
+                info!("Blacklist hit: title='{}' matched pattern='{}'",
+                    matched_title, matched_pattern);
                 browser_manager.kill_browser_processes()?;
                 state.block_browser(config.timeouts.blacklist_timeout_minutes);
-                if debug_level >= 1 {
-                    eprintln!("[DEBUG] Browser blocked for {} minute(s)", config.timeouts.blacklist_timeout_minutes);
-                }
+                info!("Browser blocked for {} minute(s)", config.timeouts.blacklist_timeout_minutes);
                 state.save(&config.files.state_file)?;
-                let bg = BackgroundManager::new(debug_level);
+                let bg = BackgroundManager::new();
                 bg.set_blocked_background(&config.backgrounds.blocked)?;
             }
         }
@@ -246,18 +207,16 @@ async fn run_daemon(config: &Config, debug_level: u8) -> anyhow::Result<()> {
             && !state.in_bathroom_break
         {
             println!("Initiating bathroom break");
-            if debug_level >= 1 {
-                eprintln!("[DEBUG] Bathroom break: duration={}m next_interval={}h",
-                    config.timeouts.bathroom_break_minutes,
-                    config.timeouts.bathroom_break_interval_hours);
-            }
+            info!("Bathroom break: duration={}m next_interval={}h",
+                config.timeouts.bathroom_break_minutes,
+                config.timeouts.bathroom_break_interval_hours);
             browser_manager.kill_browser_processes()?;
             state.start_bathroom_break(
                 config.timeouts.bathroom_break_minutes,
                 config.timeouts.bathroom_break_interval_hours,
             );
             state.save(&config.files.state_file)?;
-            let bg = BackgroundManager::new(debug_level);
+            let bg = BackgroundManager::new();
             bg.set_bathroom_break_background(&config.backgrounds.bathroom_break)?;
         }
 
@@ -265,18 +224,14 @@ async fn run_daemon(config: &Config, debug_level: u8) -> anyhow::Result<()> {
             if let Some(until) = state.bathroom_break_until {
                 if Utc::now() >= until {
                     println!("Bathroom break ended");
-                    if debug_level >= 1 {
-                        eprintln!("[DEBUG] Bathroom break expired at {}", until);
-                    }
+                    info!("Bathroom break expired at {}", until);
                     state.end_bathroom_break();
                     state.save(&config.files.state_file)?;
                 }
             }
         }
 
-        if debug_level >= 2 {
-            eprintln!("[DEBUG2] Sleeping {} second(s) until next check", config.monitoring.check_frequency_seconds);
-        }
+        debug!("Sleeping {} second(s) until next check", config.monitoring.check_frequency_seconds);
         tokio::select! {
             _ = sleep(Duration::from_secs(config.monitoring.check_frequency_seconds)) => {}
             _ = sigterm.recv() => {

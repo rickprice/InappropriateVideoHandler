@@ -1,123 +1,179 @@
 # Inappropriate Video Handler
 
-A Rust program that monitors window titles against configurable blacklist and whitelist patterns, managing browser access based on content detection and scheduled breaks.
+A Rust daemon that monitors browser window titles against configurable blacklist and whitelist patterns, killing the browser and locking it out when inappropriate content is detected. It also enforces scheduled bathroom breaks.
 
 ## Features
 
-- **Window Title Monitoring**: Continuously monitors all window titles using X11
-- **Regex-based Filtering**: Uses configurable blacklist and whitelist regex patterns
-- **Browser Process Management**: Can start and kill browser processes
-- **Persistent State**: Maintains timeout state across system reboots
-- **Background Image Management**: Changes desktop wallpaper using `feh` based on current state
+- **Browser Title Monitoring**: Watches browser window titles via X11 (active tab per window)
+- **Regex-based Filtering**: Configurable blacklist and whitelist using regular expressions
+- **Browser Blocking**: Kills the browser and prevents restart for a configurable timeout after a blacklist match
 - **Scheduled Bathroom Breaks**: Enforces periodic breaks at configurable intervals
-- **YAML Configuration**: Fully configurable via YAML file
+- **Background Image Management**: Changes the desktop wallpaper to reflect the current state
+- **Persistent State**: Block timeouts and break schedules survive system reboots
 
 ## Requirements
 
-- Linux system with X11
-- `feh` for background image management
-- `pgrep` for process management (usually pre-installed)
+- Linux with X11
+- `feh` for desktop background management
+- `pgrep` for process management (typically pre-installed)
 
 ## Installation
 
-1. Clone the repository
-2. Build with Cargo:
-   ```bash
-   cargo build --release
-   ```
-
-## Configuration
-
-Edit `config.yaml` to customize behavior:
-
-```yaml
-browser:
-  executable: "firefox"           # Browser executable path
-  url: "https://www.google.com"   # Default URL to open
-  process_name: "firefox"         # Process name for killing
-
-monitoring:
-  check_frequency_seconds: 60     # How often to check window titles
-
-timeouts:
-  blacklist_timeout_minutes: 10   # How long to block after blacklist match
-  bathroom_break_minutes: 10      # Duration of bathroom breaks
-  bathroom_break_interval_hours: 3 # How often to enforce breaks
-
-backgrounds:
-  normal: "/path/to/normal.jpg"        # Normal state background
-  blocked: "/path/to/blocked.jpg"      # Blocked state background
-  bathroom_break: "/path/to/break.jpg" # Break time background
-
-files:
-  blacklist: "blacklist.txt"      # Blacklist patterns file
-  whitelist: "whitelist.txt"      # Whitelist patterns file
-  state_file: "/tmp/ivh_state.json" # Persistent state file
-```
-
-## Pattern Files
-
-### blacklist.txt
-Contains regex patterns that trigger browser blocking:
-```
-.*[Pp]orn.*
-.*[Aa]dult.*
-.*inappropriate.*
-```
-
-### whitelist.txt
-Contains regex patterns that override blacklist matches:
-```
-.*[Ee]ducation.*
-.*[Mm]edical.*
-.*research.*
+```bash
+cargo build --release
 ```
 
 ## Usage
 
-### Start Browser
+### Run the monitoring daemon
+
+```bash
+./target/release/inappropriate-video-handler
+```
+
+### Open the browser (respects block and break state)
+
 ```bash
 ./target/release/inappropriate-video-handler --start-browser
 ```
 
-### Run Monitoring Daemon
+Use this command as the browser launcher in your desktop environment instead of calling Chrome directly. It will refuse to open the browser if a block or break is active.
+
+### Custom config file
+
 ```bash
-./target/release/inappropriate-video-handler --daemon
+./target/release/inappropriate-video-handler -c /path/to/config.yaml
 ```
 
-### Custom Config File
-```bash
-./target/release/inappropriate-video-handler -c custom-config.yaml --daemon
+---
+
+## Configuration
+
+All configuration lives in `config.yaml` (default location, overridable with `-c`).
+
+```yaml
+browser:
+  executable: "google-chrome-stable"   # Command used to launch the browser
+  url: "https://www.google.com"        # URL opened by --start-browser
+  process_name: "chrome"               # Process name used to find and kill Chrome
+
+monitoring:
+  check_frequency_seconds: 60          # How often the daemon checks window titles
+
+timeouts:
+  blacklist_timeout_minutes: 10        # How long the browser is blocked after a match
+  bathroom_break_minutes: 10           # Duration of each scheduled break
+  bathroom_break_interval_hours: 3     # How often breaks are enforced
+
+backgrounds:
+  normal: "/path/to/normal.jpg"        # Wallpaper during normal operation
+  blocked: "/path/to/blocked.jpg"      # Wallpaper while the browser is blocked
+  bathroom_break: "/path/to/break.jpg" # Wallpaper during a scheduled break
+
+files:
+  blacklist: "~/.config/inappropriate-video-handler/BlackList.txt"
+  whitelist: "~/.config/inappropriate-video-handler/WhiteList.txt"
+  state_file: "/tmp/ivh_state.json"    # Persists block/break state across reboots
 ```
+
+### Configuration reference
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `browser.executable` | Path or name of the browser binary | `google-chrome-stable` |
+| `browser.url` | URL opened when `--start-browser` is used | `https://www.google.com` |
+| `browser.process_name` | Process name matched by `pgrep` to kill the browser | `chrome` |
+
+| `monitoring.check_frequency_seconds` | Seconds between each title check | `60` |
+| `timeouts.blacklist_timeout_minutes` | Minutes the browser stays blocked after a match | `10` |
+| `timeouts.bathroom_break_minutes` | Duration of each break in minutes | `10` |
+| `timeouts.bathroom_break_interval_hours` | Hours between scheduled breaks | `3` |
+| `backgrounds.normal` | Wallpaper path during normal operation | — |
+| `backgrounds.blocked` | Wallpaper path while blocked | — |
+| `backgrounds.bathroom_break` | Wallpaper path during a break | — |
+| `files.blacklist` | Path to blacklist pattern file | — |
+| `files.whitelist` | Path to whitelist pattern file | — |
+| `files.state_file` | Path to persistent state JSON file | `/tmp/ivh_state.json` |
+
+---
+
+## Pattern Files
+
+Both files contain one regex pattern per line. Lines starting with `#` and blank lines are ignored. Patterns are case-sensitive by default; prefix with `(?i)` for case-insensitive matching.
+
+### blacklist.txt
+
+Window titles matching any of these patterns will trigger a block:
+
+```
+# Block common adult content keywords
+(?i).*\bporn\b.*
+(?i).*\badult content\b.*
+(?i).*\bxxx\b.*
+```
+
+### whitelist.txt
+
+Titles matching these patterns are **never** blocked, even if they also match the blacklist. Use this to protect legitimate content that might otherwise be caught:
+
+```
+# Allow educational and medical content
+(?i).*education.*
+(?i).*medical.*
+(?i).*research.*
+```
+
+---
+
+
+## Logging
+
+Control log verbosity with `--log-level`:
+
+```bash
+./target/release/inappropriate-video-handler --log-level debug
+```
+
+| Level | What you see |
+|-------|-------------|
+| `error` | Errors only |
+| `warn` | Errors and warnings (default) |
+| `info` | + startup messages, match hits, title check counts |
+| `debug` | + every browser window title and Chrome tab title being checked |
+| `trace` | + non-browser windows that were seen and rejected, every regex comparison |
+
+Log output goes to **stderr**. Use `--log-level debug` to verify which window titles are being checked if a match is not firing as expected.
+
+---
 
 ## How It Works
 
-1. **Window Monitoring**: The daemon continuously scans all window titles
-2. **Pattern Matching**: Compares titles against blacklist patterns
-3. **Whitelist Override**: Checks if blacklisted content is whitelisted
-4. **Browser Management**: Kills browser processes when inappropriate content is detected
-5. **Timeout Enforcement**: Prevents browser restart until timeout expires
-6. **Background Updates**: Changes wallpaper to reflect current state
-7. **Bathroom Breaks**: Enforces periodic breaks independent of content detection
+1. The daemon starts and loads config, filter patterns, and persisted state.
+2. Every `check_frequency_seconds` it finds all Chrome process IDs with `pgrep`.
+3. It queries the X11 window tree for windows belonging to those PIDs and collects their titles.
+4. If `remote_debugging_port` is set, it also fetches all tab titles from Chrome's debug API.
+5. Each title is checked against the blacklist. If it matches and is not overridden by the whitelist, the browser is killed and a block timeout is written to the state file.
+6. Separately, if the scheduled break interval has elapsed, the browser is killed and a break is started regardless of what was open.
+7. The desktop wallpaper is updated to reflect the current state.
+
+---
 
 ## State Persistence
 
-The program maintains state in a JSON file (configurable location) that persists:
-- Blacklist timeout end time
-- Next scheduled bathroom break time
-- Current bathroom break status
+State is stored as JSON at `files.state_file`. It records:
 
-This ensures restrictions remain active across system reboots.
+- When the current block expires
+- When the next break is due
+- Whether a break is currently active and when it ends
 
-## Background States
+This means a block or active break will still be in effect if the machine reboots or the daemon restarts.
 
-- **Normal**: Default wallpaper when browser can be used
-- **Blocked**: Displayed when browser is blocked due to inappropriate content
-- **Bathroom Break**: Shown during scheduled break periods
+---
 
-## Systemd Service (Optional)
+## Systemd Service
 
-Create `/etc/systemd/system/ivh.service`:
+Create `~/.config/systemd/user/ivh.service`:
+
 ```ini
 [Unit]
 Description=Inappropriate Video Handler
@@ -125,9 +181,7 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-User=yourusername
-WorkingDirectory=/path/to/inappropriate-video-handler
-ExecStart=/path/to/inappropriate-video-handler/target/release/inappropriate-video-handler --daemon
+ExecStart=/path/to/target/release/inappropriate-video-handler -c /path/to/config.yaml
 Restart=always
 Environment=DISPLAY=:0
 
@@ -136,52 +190,25 @@ WantedBy=default.target
 ```
 
 Enable and start:
+
 ```bash
 systemctl --user enable ivh.service
 systemctl --user start ivh.service
 ```
 
-## Security Notes
+If using Chrome tab monitoring, make sure Chrome is started with `--remote-debugging-port=9222` before or shortly after the daemon starts.
 
-- The program requires X11 access to monitor window titles
-- Process management requires appropriate permissions
-- Background image changes require `feh` and display access
+---
 
 ## Testing
 
-The project includes extensive unit tests covering all components:
-
-### Running Tests
-
 ```bash
-# Run all unit tests
+# Unit tests only (no X11 required)
 cargo test --lib
 
-# Run specific module tests
-cargo test config::tests
-cargo test state::tests 
-cargo test filter::tests
-cargo test browser::tests
-cargo test background::tests
+# All tests including integration tests
+cargo test
 ```
-
-### Test Coverage
-
-- **Config Module**: 10 tests covering YAML loading, validation, and error handling
-- **State Module**: 17 tests covering persistence, timeout logic, and state transitions  
-- **Filter Module**: 18 tests covering regex patterns, blacklist/whitelist logic, and edge cases
-- **Browser Module**: 12 tests covering process management and browser lifecycle
-- **Background Module**: 10 tests covering feh integration and error handling
-
-**Total: 67 unit tests with comprehensive coverage**
-
-### Test Features
-
-- **Isolated Testing**: Each module tested independently with mocked dependencies
-- **Edge Case Coverage**: Invalid inputs, missing files, empty data, and error conditions
-- **Integration Scenarios**: End-to-end workflows testing component interactions
-- **Cross-platform Safety**: Tests avoid system dependencies where possible
-- **Concurrent Testing**: Thread-safe operations validated with `serial_test`
 
 ## License
 

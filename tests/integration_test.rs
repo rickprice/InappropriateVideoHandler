@@ -16,7 +16,7 @@ use tempfile::{NamedTempFile, TempDir};
 fn create_test_config() -> Config {
     Config {
         browser: BrowserConfig {
-            executable: "echo".to_string(), // Use echo instead of real browser for testing
+            executable: "echo".to_string(),
             url: "https://test.com".to_string(),
             process_name: "test-process".to_string(),
         },
@@ -62,14 +62,11 @@ fn test_config_roundtrip() {
 
     let original_config = create_test_config();
 
-    // Save config to YAML
     let yaml_content = serde_yaml::to_string(&original_config).unwrap();
     fs::write(&config_path, yaml_content).unwrap();
 
-    // Load config from YAML
     let loaded_config = Config::load(&config_path).unwrap();
 
-    // Verify all fields match
     assert_eq!(
         loaded_config.browser.executable,
         original_config.browser.executable
@@ -90,27 +87,22 @@ fn test_state_persistence_workflow() {
     let temp_dir = TempDir::new().unwrap();
     let state_file = temp_dir.path().join("test_state.json");
 
-    // Create initial state
     let mut state = AppState::default();
     assert!(!state.is_blocked());
     assert!(!state.in_bathroom_break);
 
-    // Block browser
     state.block_browser(10);
     assert!(state.is_blocked());
     state.save(&state_file).unwrap();
 
-    // Load state and verify block persists
     let loaded_state = AppState::load(&state_file).unwrap();
     assert!(loaded_state.is_blocked());
 
-    // Start bathroom break
     let mut state = loaded_state;
     state.start_bathroom_break(5, 2);
     assert!(state.in_bathroom_break);
     state.save(&state_file).unwrap();
 
-    // Load state and verify bathroom break persists
     let final_state = AppState::load(&state_file).unwrap();
     assert!(final_state.in_bathroom_break);
 }
@@ -119,25 +111,21 @@ fn test_state_persistence_workflow() {
 fn test_filter_integration() {
     let (blacklist_file, whitelist_file) = create_temp_filter_files();
 
-    let filter = Filter::new(blacklist_file.path(), whitelist_file.path(), 0).unwrap();
+    let filter = Filter::new(blacklist_file.path(), whitelist_file.path()).unwrap();
 
-    // Test blacklist matching
     assert!(filter.is_blacklisted("free porn videos"));
     assert!(filter.is_blacklisted("adult content"));
     assert!(filter.is_blacklisted("xxx movies"));
 
-    // Test whitelist override
     assert!(!filter.is_blacklisted("sex education documentary"));
     assert!(!filter.is_blacklisted("medical adult content"));
 
-    // Test clean content
     assert!(!filter.is_blacklisted("cooking tutorial"));
 
-    // Test multiple titles
     let titles = vec![
         "cooking tutorial".to_string(),
         "news update".to_string(),
-        "free porn videos".to_string(), // This should trigger
+        "free porn videos".to_string(),
     ];
     assert!(filter.check_titles(&titles));
 
@@ -152,7 +140,7 @@ fn test_filter_integration() {
 #[test]
 fn test_filter_find_blacklisted_title_integration() {
     let (blacklist_file, whitelist_file) = create_temp_filter_files();
-    let filter = Filter::new(blacklist_file.path(), whitelist_file.path(), 0).unwrap();
+    let filter = Filter::new(blacklist_file.path(), whitelist_file.path()).unwrap();
 
     let titles = vec![
         "cooking tutorial".to_string(),
@@ -170,9 +158,8 @@ fn test_filter_find_blacklisted_title_integration() {
 #[test]
 fn test_filter_find_blacklisted_title_whitelisted() {
     let (blacklist_file, whitelist_file) = create_temp_filter_files();
-    let filter = Filter::new(blacklist_file.path(), whitelist_file.path(), 0).unwrap();
+    let filter = Filter::new(blacklist_file.path(), whitelist_file.path()).unwrap();
 
-    // All titles are whitelisted or clean — no hit expected
     let titles = vec![
         "sex education documentary".to_string(),
         "medical adult content".to_string(),
@@ -181,77 +168,30 @@ fn test_filter_find_blacklisted_title_whitelisted() {
 }
 
 #[test]
-fn test_filter_integration_all_debug_levels() {
-    let (blacklist_file, whitelist_file) = create_temp_filter_files();
-
-    for level in 0u8..=3 {
-        let bl = std::path::Path::new(blacklist_file.path());
-        let wl = std::path::Path::new(whitelist_file.path());
-        let filter = Filter::new(bl, wl, level).unwrap();
-
-        assert_eq!(filter.blacklist_len(), 3, "level={}", level);
-        assert_eq!(filter.whitelist_len(), 2, "level={}", level);
-        assert!(filter.is_blacklisted("free porn videos"), "level={}", level);
-        assert!(!filter.is_blacklisted("sex education documentary"), "level={}", level);
-    }
-}
-
-#[test]
 #[serial]
 fn test_browser_manager_integration() {
     let manager = BrowserManager::new(
-        "echo".to_string(), // Use echo for safe testing
+        "echo".to_string(),
         "nonexistent-process".to_string(),
-        0,
     );
 
-    // Test starting "browser" (echo command)
     let result = manager.start_browser("test-url");
     assert!(result.is_ok());
 
-    // Test process finding (should find nothing for our fake process)
     assert!(!manager.has_running_processes());
 
-    // Test killing processes (should succeed even with no processes)
     let result = manager.kill_browser_processes();
     assert!(result.is_ok());
 }
 
 #[test]
 #[serial]
-fn test_browser_manager_integration_with_debug() {
-    for level in 0u8..=3 {
-        let manager = BrowserManager::new(
-            "echo".to_string(),
-            "nonexistent-process".to_string(),
-            level,
-        );
-        assert!(!manager.has_running_processes(), "debug_level={}", level);
-        assert!(manager.kill_browser_processes().is_ok(), "debug_level={}", level);
-    }
-}
-
-#[test]
-#[serial]
 fn test_background_manager_integration() {
-    let bg = BackgroundManager::new(0);
+    let bg = BackgroundManager::new();
 
-    // All should complete without error (even if feh fails)
     assert!(bg.set_normal_background("/tmp/test_normal.jpg").is_ok());
     assert!(bg.set_blocked_background("/tmp/test_blocked.jpg").is_ok());
     assert!(bg.set_bathroom_break_background("/tmp/test_break.jpg").is_ok());
-}
-
-#[test]
-#[serial]
-fn test_background_manager_integration_with_debug() {
-    for level in 0u8..=3 {
-        let bg = BackgroundManager::new(level);
-        assert!(bg.set_background("/tmp/test.jpg").is_ok(), "debug_level={}", level);
-        assert!(bg.set_normal_background("/tmp/normal.jpg").is_ok(), "debug_level={}", level);
-        assert!(bg.set_blocked_background("/tmp/blocked.jpg").is_ok(), "debug_level={}", level);
-        assert!(bg.set_bathroom_break_background("/tmp/break.jpg").is_ok(), "debug_level={}", level);
-    }
 }
 
 #[test]
@@ -260,15 +200,12 @@ fn test_complete_workflow_simulation() {
     let state_file = temp_dir.path().join("workflow_state.json");
     let (blacklist_file, whitelist_file) = create_temp_filter_files();
 
-    // Initialize components
-    let filter = Filter::new(blacklist_file.path(), whitelist_file.path(), 0).unwrap();
-    let manager = BrowserManager::new("echo".to_string(), "test-process".to_string(), 0);
+    let filter = Filter::new(blacklist_file.path(), whitelist_file.path()).unwrap();
+    let manager = BrowserManager::new("echo".to_string(), "test-process".to_string());
     let mut state = AppState::default();
 
-    // Simulate normal operation
     assert!(!state.is_blocked());
 
-    // Simulate inappropriate content detection
     let bad_titles = vec!["inappropriate porn content".to_string()];
     if let Some((title, pattern)) = filter.find_blacklisted_title(&bad_titles) {
         assert_eq!(title, "inappropriate porn content");
@@ -276,28 +213,22 @@ fn test_complete_workflow_simulation() {
 
         let _ = manager.kill_browser_processes();
         state.block_browser(10);
-        let _ = BackgroundManager::new(0).set_blocked_background("/tmp/blocked.jpg");
+        let _ = BackgroundManager::new().set_blocked_background("/tmp/blocked.jpg");
     }
 
-    // Verify state
     assert!(state.is_blocked());
 
-    // Save state
     state.save(&state_file).unwrap();
 
-    // Simulate restart - load state
     let loaded_state = AppState::load(&state_file).unwrap();
     assert!(loaded_state.is_blocked());
 
-    // Simulate bathroom break time
     let mut state = loaded_state;
     state.start_bathroom_break(5, 2);
     assert!(state.in_bathroom_break);
 
-    // Save final state
     state.save(&state_file).unwrap();
 
-    // Verify final state persists
     let final_state = AppState::load(&state_file).unwrap();
     assert!(final_state.in_bathroom_break);
 }
@@ -306,37 +237,32 @@ fn test_complete_workflow_simulation() {
 fn test_timeout_expiration_logic() {
     let mut state = AppState::default();
 
-    // Test blocked timeout expiration
-    state.block_browser(0); // Block for 0 minutes (immediate expiration)
+    state.block_browser(0);
     std::thread::sleep(std::time::Duration::from_millis(10));
-    assert!(!state.is_blocked()); // Should be expired
+    assert!(!state.is_blocked());
 
-    // Test bathroom break expiration
-    state.start_bathroom_break(0, 1); // 0 minute break
+    state.start_bathroom_break(0, 1);
     std::thread::sleep(std::time::Duration::from_millis(10));
-    assert!(!state.is_bathroom_break_time(1)); // Should be expired
+    assert!(!state.is_bathroom_break_time(1));
 }
 
 #[test]
 fn test_edge_case_handling() {
     let temp_dir = TempDir::new().unwrap();
 
-    // Test with empty filter files
     let empty_blacklist = temp_dir.path().join("empty_blacklist.txt");
     let empty_whitelist = temp_dir.path().join("empty_whitelist.txt");
     fs::write(&empty_blacklist, "").unwrap();
     fs::write(&empty_whitelist, "").unwrap();
 
-    let filter = Filter::new(&empty_blacklist, &empty_whitelist, 0).unwrap();
+    let filter = Filter::new(&empty_blacklist, &empty_whitelist).unwrap();
     assert!(!filter.is_blacklisted("any content"));
     assert!(!filter.check_titles(&["any content".to_string()]));
     assert!(filter.find_blacklisted_title(&["any content".to_string()]).is_none());
 
-    // Test browser manager with empty process name
-    let manager = BrowserManager::new("some_executable".to_string(), "".to_string(), 0);
+    let manager = BrowserManager::new("some_executable".to_string(), "".to_string());
     assert!(!manager.has_running_processes());
 
-    // Test state with corrupted file
     let corrupted_state_file = temp_dir.path().join("corrupted_state.json");
     fs::write(&corrupted_state_file, "invalid json content").unwrap();
     let result = AppState::load(&corrupted_state_file);
@@ -351,7 +277,6 @@ fn test_concurrent_operations() {
     let temp_dir = TempDir::new().unwrap();
     let state_file = Arc::new(temp_dir.path().join("concurrent_state.json"));
 
-    // Test concurrent state operations
     let handles: Vec<_> = (0..5)
         .map(|i| {
             let state_file = Arc::clone(&state_file);
@@ -367,7 +292,6 @@ fn test_concurrent_operations() {
         handle.join().unwrap();
     }
 
-    // At least one save should have succeeded
     let final_state = AppState::load(&*state_file);
     assert!(final_state.is_ok());
 }
@@ -376,7 +300,6 @@ fn test_concurrent_operations() {
 fn test_configuration_validation() {
     let config = create_test_config();
 
-    // Validate all required fields are present
     assert!(!config.browser.executable.is_empty());
     assert!(!config.browser.url.is_empty());
     assert!(!config.browser.process_name.is_empty());
@@ -396,23 +319,21 @@ fn test_configuration_validation() {
 fn test_time_calculations() {
     let mut state = AppState::default();
 
-    // Test blocking for specific duration
     let start_time = Utc::now();
-    state.block_browser(5); // 5 minutes
+    state.block_browser(5);
 
     if let Some(blocked_until) = state.blocked_until {
         let duration = blocked_until - start_time;
-        assert!(duration.num_minutes() >= 4 && duration.num_minutes() <= 6); // Allow some variance
+        assert!(duration.num_minutes() >= 4 && duration.num_minutes() <= 6);
     } else {
         panic!("blocked_until should be set");
     }
 
-    // Test bathroom break scheduling
-    state.start_bathroom_break(3, 2); // 3 min break, next in 2 hours
+    state.start_bathroom_break(3, 2);
 
     let expected_next = Utc::now() + Duration::hours(2);
     let time_diff = (state.next_bathroom_break - expected_next)
         .num_seconds()
         .abs();
-    assert!(time_diff < 5); // Allow 5 seconds variance
+    assert!(time_diff < 5);
 }

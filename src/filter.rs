@@ -1,4 +1,5 @@
 use anyhow::Result;
+use log::{debug, info, trace, warn};
 use regex::Regex;
 use std::fs;
 use std::path::Path;
@@ -6,38 +7,27 @@ use std::path::Path;
 pub struct Filter {
     blacklist: Vec<Regex>,
     whitelist: Vec<Regex>,
-    debug_level: u8,
 }
 
 impl Filter {
-    pub fn new<P: AsRef<Path>>(blacklist_path: P, whitelist_path: P, debug_level: u8) -> Result<Self> {
-        let blacklist = Self::load_patterns(blacklist_path, "blacklist", debug_level)?;
-        let whitelist = Self::load_patterns(whitelist_path, "whitelist", debug_level)?;
+    pub fn new<P: AsRef<Path>>(blacklist_path: P, whitelist_path: P) -> Result<Self> {
+        let blacklist = Self::load_patterns(blacklist_path, "blacklist")?;
+        let whitelist = Self::load_patterns(whitelist_path, "whitelist")?;
 
-        if debug_level >= 1 {
-            eprintln!("[DEBUG] Filter: {} blacklist pattern(s), {} whitelist pattern(s)",
-                blacklist.len(), whitelist.len());
-        }
+        info!("Filter: {} blacklist pattern(s), {} whitelist pattern(s)",
+            blacklist.len(), whitelist.len());
 
-        Ok(Filter {
-            blacklist,
-            whitelist,
-            debug_level,
-        })
+        Ok(Filter { blacklist, whitelist })
     }
 
-    fn load_patterns<P: AsRef<Path>>(path: P, label: &str, debug_level: u8) -> Result<Vec<Regex>> {
+    fn load_patterns<P: AsRef<Path>>(path: P, label: &str) -> Result<Vec<Regex>> {
         if !path.as_ref().exists() {
-            if debug_level >= 1 {
-                eprintln!("[DEBUG] {} file '{}' not found, using empty pattern list",
-                    label, path.as_ref().display());
-            }
+            info!("{} file '{}' not found, using empty pattern list",
+                label, path.as_ref().display());
             return Ok(Vec::new());
         }
 
-        if debug_level >= 1 {
-            eprintln!("[DEBUG] Loading {} patterns from '{}'", label, path.as_ref().display());
-        }
+        info!("Loading {} patterns from '{}'", label, path.as_ref().display());
 
         let content = fs::read_to_string(path)?;
         let mut patterns = Vec::new();
@@ -47,12 +37,10 @@ impl Filter {
             if !line.is_empty() && !line.starts_with('#') {
                 match Regex::new(line) {
                     Ok(regex) => {
-                        if debug_level >= 3 {
-                            eprintln!("[DEBUG3]   Loaded {} pattern: '{}'", label, line);
-                        }
+                        trace!("Loaded {} pattern: '{}'", label, line);
                         patterns.push(regex);
                     }
-                    Err(e) => eprintln!("Invalid regex pattern '{}': {}", line, e),
+                    Err(e) => warn!("Invalid regex pattern '{}': {}", line, e),
                 }
             }
         }
@@ -70,20 +58,14 @@ impl Filter {
 
     #[allow(dead_code)]
     pub fn is_blacklisted(&self, title: &str) -> bool {
-        if self.debug_level >= 2 {
-            eprintln!("[DEBUG2] Checking title: '{}'", title);
-        }
+        debug!("Checking title: '{}'", title);
         for pattern in &self.blacklist {
             let matched = pattern.is_match(title);
-            if self.debug_level >= 3 {
-                eprintln!("[DEBUG3]   Blacklist pattern '{}': {}",
-                    pattern.as_str(), if matched { "MATCH" } else { "no match" });
-            }
+            trace!("  Blacklist pattern '{}': {}",
+                pattern.as_str(), if matched { "MATCH" } else { "no match" });
             if matched {
                 let whitelisted = self.is_whitelisted(title);
-                if self.debug_level >= 2 {
-                    eprintln!("[DEBUG2]   Blacklist match for '{}', whitelisted={}", title, whitelisted);
-                }
+                debug!("  Blacklist match for '{}', whitelisted={}", title, whitelisted);
                 if !whitelisted {
                     return true;
                 }
@@ -95,10 +77,8 @@ impl Filter {
     pub fn is_whitelisted(&self, title: &str) -> bool {
         for pattern in &self.whitelist {
             let matched = pattern.is_match(title);
-            if self.debug_level >= 3 {
-                eprintln!("[DEBUG3]   Whitelist pattern '{}': {}",
-                    pattern.as_str(), if matched { "MATCH" } else { "no match" });
-            }
+            trace!("  Whitelist pattern '{}': {}",
+                pattern.as_str(), if matched { "MATCH" } else { "no match" });
             if matched {
                 return true;
             }
@@ -108,28 +88,21 @@ impl Filter {
 
     /// Returns the first (title, pattern_string) pair that is blacklisted, or None.
     pub fn find_blacklisted_title(&self, titles: &[String]) -> Option<(String, String)> {
-        if self.debug_level >= 1 {
-            eprintln!("[DEBUG] find_blacklisted_title: checking {} title(s)", titles.len());
-        }
+        info!("find_blacklisted_title: checking {} title(s)", titles.len());
         for title in titles {
+            debug!("  Checking: '{}'", title);
             for pattern in &self.blacklist {
                 let matched = pattern.is_match(title);
-                if self.debug_level >= 3 {
-                    eprintln!("[DEBUG3]   '{}' vs pattern '{}': {}",
-                        title, pattern.as_str(), if matched { "MATCH" } else { "no match" });
-                }
+                trace!("  '{}' vs pattern '{}': {}",
+                    title, pattern.as_str(), if matched { "MATCH" } else { "no match" });
                 if matched && !self.is_whitelisted(title) {
-                    if self.debug_level >= 1 {
-                        eprintln!("[DEBUG] Blacklist hit: title='{}' pattern='{}'",
-                            title, pattern.as_str());
-                    }
+                    info!("Blacklist hit: title='{}' pattern='{}'",
+                        title, pattern.as_str());
                     return Some((title.clone(), pattern.as_str().to_string()));
                 }
             }
         }
-        if self.debug_level >= 2 {
-            eprintln!("[DEBUG2] No blacklisted titles found");
-        }
+        debug!("No blacklisted titles found");
         None
     }
 
@@ -154,7 +127,7 @@ mod tests {
     fn make_filter(blacklist: &str, whitelist: &str) -> Filter {
         let bl = create_temp_file_with_content(blacklist);
         let wl = create_temp_file_with_content(whitelist);
-        Filter::new(bl.path(), wl.path(), 0).unwrap()
+        Filter::new(bl.path(), wl.path()).unwrap()
     }
 
     #[test]
@@ -165,7 +138,7 @@ mod tests {
         let blacklist_file = create_temp_file_with_content(blacklist_content);
         let whitelist_file = create_temp_file_with_content(whitelist_content);
 
-        let filter = Filter::new(blacklist_file.path(), whitelist_file.path(), 0).unwrap();
+        let filter = Filter::new(blacklist_file.path(), whitelist_file.path()).unwrap();
 
         assert_eq!(filter.blacklist.len(), 3);
         assert_eq!(filter.whitelist.len(), 2);
@@ -174,7 +147,7 @@ mod tests {
     #[test]
     fn test_filter_new_with_nonexistent_files() {
         let filter =
-            Filter::new("/nonexistent/blacklist.txt", "/nonexistent/whitelist.txt", 0).unwrap();
+            Filter::new("/nonexistent/blacklist.txt", "/nonexistent/whitelist.txt").unwrap();
 
         assert_eq!(filter.blacklist.len(), 0);
         assert_eq!(filter.whitelist.len(), 0);
@@ -196,7 +169,7 @@ mod tests {
         let blacklist_file = create_temp_file_with_content(content);
         let whitelist_file = create_temp_file_with_content("");
 
-        let filter = Filter::new(blacklist_file.path(), whitelist_file.path(), 0).unwrap();
+        let filter = Filter::new(blacklist_file.path(), whitelist_file.path()).unwrap();
 
         assert_eq!(filter.blacklist.len(), 3);
         assert_eq!(filter.whitelist.len(), 0);
@@ -208,9 +181,8 @@ mod tests {
         let blacklist_file = create_temp_file_with_content(content);
         let whitelist_file = create_temp_file_with_content("");
 
-        let filter = Filter::new(blacklist_file.path(), whitelist_file.path(), 0).unwrap();
+        let filter = Filter::new(blacklist_file.path(), whitelist_file.path()).unwrap();
 
-        // Should skip invalid regex and only have 2 valid ones
         assert_eq!(filter.blacklist.len(), 2);
     }
 
@@ -228,7 +200,7 @@ mod tests {
         let filter = make_filter(".*porn.*", "");
 
         assert!(filter.is_blacklisted("free porn videos"));
-        assert!(!filter.is_blacklisted("free PORN videos")); // Case sensitive
+        assert!(!filter.is_blacklisted("free PORN videos"));
     }
 
     #[test]
@@ -253,14 +225,9 @@ mod tests {
     fn test_blacklist_with_whitelist_override() {
         let filter = make_filter(".*porn.*\n.*adult.*", ".*education.*\n.*medical.*");
 
-        // Should be blacklisted (matches blacklist, not whitelisted)
         assert!(filter.is_blacklisted("free porn videos"));
-
-        // Should NOT be blacklisted (matches blacklist but also whitelisted)
         assert!(!filter.is_blacklisted("sex education documentary"));
         assert!(!filter.is_blacklisted("medical adult content"));
-
-        // Should NOT be blacklisted (doesn't match blacklist)
         assert!(!filter.is_blacklisted("cooking tutorial"));
     }
 
@@ -289,7 +256,7 @@ mod tests {
 
         let titles = vec![
             "cooking tutorial".to_string(),
-            "free porn videos".to_string(), // This should trigger
+            "free porn videos".to_string(),
             "educational video".to_string(),
         ];
 
@@ -302,7 +269,7 @@ mod tests {
 
         let titles = vec![
             "cooking tutorial".to_string(),
-            "sex education documentary".to_string(), // Blacklisted but whitelisted
+            "sex education documentary".to_string(),
             "educational video".to_string(),
         ];
 
@@ -318,13 +285,12 @@ mod tests {
 
         assert!(filter.is_blacklisted("watch xxx videos"));
         assert!(filter.is_blacklisted("adult content here"));
-        assert!(!filter.is_blacklisted("appropriate content")); // No word boundary match
-        assert!(!filter.is_blacklisted("xxx educational documentary")); // Whitelisted
+        assert!(!filter.is_blacklisted("appropriate content"));
+        assert!(!filter.is_blacklisted("xxx educational documentary"));
     }
 
     #[test]
     fn test_load_patterns_edge_cases() {
-        // Test with only whitespace and comments
         let content = "
 # Comment only
 
@@ -334,7 +300,7 @@ mod tests {
         let blacklist_file = create_temp_file_with_content(content);
         let whitelist_file = create_temp_file_with_content("");
 
-        let filter = Filter::new(blacklist_file.path(), whitelist_file.path(), 0).unwrap();
+        let filter = Filter::new(blacklist_file.path(), whitelist_file.path()).unwrap();
 
         assert_eq!(filter.blacklist.len(), 0);
     }
@@ -343,7 +309,6 @@ mod tests {
     fn test_multiple_patterns_same_title() {
         let filter = make_filter(".*video.*\n.*content.*", "");
 
-        // Should match first pattern and return true
         assert!(filter.is_blacklisted("video content"));
     }
 
@@ -354,8 +319,6 @@ mod tests {
         assert!(!filter.is_blacklisted(""));
         assert!(!filter.is_whitelisted(""));
     }
-
-    // --- blacklist_len / whitelist_len ---
 
     #[test]
     fn test_blacklist_len_whitelist_len() {
@@ -370,8 +333,6 @@ mod tests {
         assert_eq!(filter.blacklist_len(), 0);
         assert_eq!(filter.whitelist_len(), 0);
     }
-
-    // --- find_blacklisted_title ---
 
     #[test]
     fn test_find_blacklisted_title_returns_match_info() {
@@ -410,7 +371,6 @@ mod tests {
 
     #[test]
     fn test_find_blacklisted_title_first_match_returned() {
-        // When multiple titles match, the first one is returned
         let filter = make_filter(".*porn.*", "");
 
         let titles = vec![
@@ -428,7 +388,6 @@ mod tests {
 
         let titles = vec!["sex education documentary".to_string()];
 
-        // Should be whitelisted, so no hit
         assert!(filter.find_blacklisted_title(&titles).is_none());
     }
 
@@ -449,7 +408,7 @@ mod tests {
         let cases: &[(&[&str], bool)] = &[
             (&["cooking tutorial", "news"], false),
             (&["free porn videos"], true),
-            (&["sex education documentary"], false),  // whitelisted
+            (&["sex education documentary"], false),
             (&[], false),
         ];
 
@@ -457,48 +416,6 @@ mod tests {
             let titles: Vec<String> = raw.iter().map(|s| s.to_string()).collect();
             assert_eq!(filter.check_titles(&titles), *expected, "titles={:?}", raw);
             assert_eq!(filter.find_blacklisted_title(&titles).is_some(), *expected, "titles={:?}", raw);
-        }
-    }
-
-    // --- debug_level correctness (results unchanged regardless of level) ---
-
-    #[test]
-    fn test_debug_level_does_not_affect_results() {
-        let blacklist_content = ".*porn.*\n.*adult.*";
-        let whitelist_content = ".*education.*";
-
-        let titles = vec![
-            "cooking tutorial".to_string(),
-            "free porn videos".to_string(),
-            "sex education documentary".to_string(),
-        ];
-
-        for level in 0u8..=3 {
-            let bl = create_temp_file_with_content(blacklist_content);
-            let wl = create_temp_file_with_content(whitelist_content);
-            let filter = Filter::new(bl.path(), wl.path(), level).unwrap();
-
-            // blacklisted title should always be detected
-            assert!(filter.check_titles(&titles), "level={}", level);
-
-            // whitelisted title should never trigger
-            let wl_only = vec!["sex education documentary".to_string()];
-            assert!(!filter.check_titles(&wl_only), "level={}", level);
-        }
-    }
-
-    #[test]
-    fn test_filter_new_all_debug_levels() {
-        // Verify Filter::new succeeds at all debug levels without panicking
-        let blacklist_content = ".*porn.*";
-        let whitelist_content = ".*education.*";
-
-        for level in 0u8..=3 {
-            let bl = create_temp_file_with_content(blacklist_content);
-            let wl = create_temp_file_with_content(whitelist_content);
-            let filter = Filter::new(bl.path(), wl.path(), level).unwrap();
-            assert_eq!(filter.blacklist_len(), 1, "level={}", level);
-            assert_eq!(filter.whitelist_len(), 1, "level={}", level);
         }
     }
 }
