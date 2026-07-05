@@ -219,12 +219,19 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
 
     bg.set_normal_background(&config.backgrounds.normal)?;
 
+    // Reset the violation counter only if the configured quiet window has elapsed
+    // since the last violation — not unconditionally on every browser start.
     if state.violation_count > 0 {
-        info!("Resetting violation count ({} -> 0) after cooldown expired", state.violation_count);
-        state.violation_count = 0;
-        state.violation_window_start = None;
-        state.save(&config.files.state_file)?;
-        println!("Violation count reset after cooldown — fresh start");
+        let quiet_elapsed = state.violation_window_start.map_or(true, |last| {
+            (Utc::now() - last).num_minutes() >= config.timeouts.retry_reset_minutes as i64
+        });
+        if quiet_elapsed {
+            info!("Resetting violation count ({} -> 0) after {} minutes quiet",
+                state.violation_count, config.timeouts.retry_reset_minutes);
+            state.violation_count = 0;
+            state.violation_window_start = None;
+            state.save(&config.files.state_file)?;
+        }
     }
 
     info!("Starting browser: executable='{}' url='{}'",
@@ -261,94 +268,128 @@ async fn run_daemon(config: &Config) -> anyhow::Result<()> {
     ));
 
     let mut sigterm = signal(SignalKind::terminate())?;
+    let bg = BackgroundManager::new();
 
     println!("Starting daemon mode...");
     info!("Daemon started");
 
-    let initial_state = AppState::load(&config.files.state_file)?;
-    let bg = BackgroundManager::new();
-    if initial_state.is_blocked() {
-        bg.set_blocked_background(&config.backgrounds.blocked)?;
-    } else if initial_state.is_bathroom_break_time(config.timeouts.bathroom_break_interval_hours) {
-        bg.set_bathroom_break_background(&config.backgrounds.bathroom_break)?;
-    } else {
-        bg.set_normal_background(&config.backgrounds.normal)?;
-    }
+    // Track current background to avoid redundant feh calls.
+    #[derive(PartialEq)]
+    enum BgMode { Normal, Blocked, Break }
+    let mut current_bg: Option<BgMode> = None;
 
     loop {
         debug!("--- daemon tick ---");
         let mut state = AppState::load(&config.files.state_file)?;
+        let mut state_dirty = false;
 
         debug!("State: blocked={} in_bathroom_break={} violation_count={} next_break={}",
             state.is_blocked(), state.in_bathroom_break, state.violation_count,
             state.next_bathroom_break);
 
-        let browser_pids = browser_manager.get_pids();
-        if let Ok(titles) = window_monitor.get_browser_window_titles(&browser_pids) {
-            if !titles.is_empty() {
-                info!("Checking {} browser window title(s) against filter", titles.len());
-                if let Err(e) = record_titles(&config.files.titles_file, &titles) {
-                    warn!("Failed to record window titles: {}", e);
+        // End any expired bathroom break first so the rest of the loop sees clean state.
+        if state.in_bathroom_break {
+            if let Some(until) = state.bathroom_break_until {
+                if Utc::now() >= until {
+                    info!("Bathroom break expired at {}", until);
+                    println!("Bathroom break ended");
+                    state.end_bathroom_break();
+                    state_dirty = true;
                 }
-            }
-
-            if let Some((matched_title, matched_pattern)) = filter.find_blacklisted_title(&titles) {
-                warn!("Blacklist hit: title='{}' matched pattern='{}'",
-                    matched_title, matched_pattern);
-                browser_manager.kill_browser_processes()?;
-
-                let hard_locked = state.record_violation(
-                    config.timeouts.grace_retries,
-                    config.timeouts.retry_reset_minutes,
-                    config.timeouts.blacklist_timeout_minutes,
-                    config.timeouts.hard_lock_minutes,
-                );
-
-                if hard_locked {
-                    warn!("Grace retries exhausted ({} violations) — hard locking for {} minutes",
-                        state.violation_count, config.timeouts.hard_lock_minutes);
-                    println!("Blacklisted content detected — grace retries exhausted, hard locking for {} minutes",
-                        config.timeouts.hard_lock_minutes);
-                } else {
-                    warn!("Grace retry {}/{} — browser killed, blocking for {} minute(s)",
-                        state.violation_count, config.timeouts.grace_retries,
-                        config.timeouts.blacklist_timeout_minutes);
-                    println!("Blacklisted content detected — grace retry {}/{}, browser killed",
-                        state.violation_count, config.timeouts.grace_retries);
-                }
-
-                state.save(&config.files.state_file)?;
-                let bg = BackgroundManager::new();
-                bg.set_blocked_background(&config.backgrounds.blocked)?;
             }
         }
 
-        if state.is_bathroom_break_time(config.timeouts.bathroom_break_interval_hours)
-            && !state.in_bathroom_break
-        {
-            println!("Initiating bathroom break");
+        // Check window titles for violations — skipped during a bathroom break since
+        // the browser should not be running and the user should be away from the screen.
+        if !state.in_bathroom_break {
+            let browser_pids = browser_manager.get_pids();
+            if let Ok(titles) = window_monitor.get_browser_window_titles(&browser_pids) {
+                if !titles.is_empty() {
+                    info!("Checking {} browser window title(s) against filter", titles.len());
+                    if let Err(e) = record_titles(&config.files.titles_file, &titles) {
+                        warn!("Failed to record window titles: {}", e);
+                    }
+                }
+
+                if let Some((matched_title, matched_pattern)) = filter.find_blacklisted_title(&titles) {
+                    warn!("Blacklist hit: title='{}' matched pattern='{}'",
+                        matched_title, matched_pattern);
+                    browser_manager.kill_browser_processes()?;
+
+                    let hard_locked = state.record_violation(
+                        config.timeouts.grace_retries,
+                        config.timeouts.retry_reset_minutes,
+                        config.timeouts.blacklist_timeout_minutes,
+                        config.timeouts.hard_lock_minutes,
+                    );
+
+                    if hard_locked {
+                        warn!("Grace retries exhausted ({} violations) — hard locking for {} minutes",
+                            state.violation_count, config.timeouts.hard_lock_minutes);
+                        println!("Blacklisted content detected — grace retries exhausted, hard locking for {} minutes",
+                            config.timeouts.hard_lock_minutes);
+                    } else {
+                        warn!("Grace retry {}/{} — browser killed, blocking for {} minute(s)",
+                            state.violation_count, config.timeouts.grace_retries,
+                            config.timeouts.blacklist_timeout_minutes);
+                        println!("Blacklisted content detected — grace retry {}/{}, browser killed",
+                            state.violation_count, config.timeouts.grace_retries);
+                    }
+                    state_dirty = true;
+                }
+            }
+
+            // Proactively reset the violation counter once enough quiet time has passed.
+            // This handles the case where no further violations occur after the reset window.
+            if !state.is_blocked() {
+                if let Some(last) = state.violation_window_start {
+                    if (Utc::now() - last).num_minutes() >= config.timeouts.retry_reset_minutes as i64
+                        && state.violation_count > 0
+                    {
+                        info!("Resetting violation count ({} -> 0) after {} minutes quiet",
+                            state.violation_count, config.timeouts.retry_reset_minutes);
+                        state.violation_count = 0;
+                        state.violation_window_start = None;
+                        state_dirty = true;
+                    }
+                }
+            }
+        }
+
+        // Initiate a scheduled bathroom break — only when the browser is not already
+        // in a cooldown block, to keep the two states distinct.
+        if !state.is_blocked() && !state.in_bathroom_break && Utc::now() >= state.next_bathroom_break {
             info!("Bathroom break: duration={}m next_interval={}h",
                 config.timeouts.bathroom_break_minutes,
                 config.timeouts.bathroom_break_interval_hours);
+            println!("Initiating bathroom break");
             browser_manager.kill_browser_processes()?;
             state.start_bathroom_break(
                 config.timeouts.bathroom_break_minutes,
                 config.timeouts.bathroom_break_interval_hours,
             );
-            state.save(&config.files.state_file)?;
-            let bg = BackgroundManager::new();
-            bg.set_bathroom_break_background(&config.backgrounds.bathroom_break)?;
+            state_dirty = true;
         }
 
-        if state.in_bathroom_break {
-            if let Some(until) = state.bathroom_break_until {
-                if Utc::now() >= until {
-                    println!("Bathroom break ended");
-                    info!("Bathroom break expired at {}", until);
-                    state.end_bathroom_break();
-                    state.save(&config.files.state_file)?;
-                }
+        if state_dirty {
+            state.save(&config.files.state_file)?;
+        }
+
+        // Sync background to current state; only call feh when the mode actually changes.
+        let new_bg = if state.in_bathroom_break {
+            BgMode::Break
+        } else if state.is_blocked() {
+            BgMode::Blocked
+        } else {
+            BgMode::Normal
+        };
+        if current_bg.as_ref() != Some(&new_bg) {
+            match new_bg {
+                BgMode::Normal => bg.set_normal_background(&config.backgrounds.normal)?,
+                BgMode::Blocked => bg.set_blocked_background(&config.backgrounds.blocked)?,
+                BgMode::Break => bg.set_bathroom_break_background(&config.backgrounds.bathroom_break)?,
             }
+            current_bg = Some(new_bg);
         }
 
         debug!("Sleeping {} second(s) until next check", config.monitoring.check_frequency_seconds);
