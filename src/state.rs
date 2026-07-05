@@ -152,10 +152,12 @@ mod tests {
         let temp_file = NamedTempFile::new().unwrap();
         let temp_path = temp_file.path().to_path_buf();
 
-        let mut original_state = AppState::default();
-        original_state.blocked_until = Some(Utc::now() + chrono::Duration::minutes(10));
-        original_state.in_bathroom_break = true;
-        original_state.bathroom_break_until = Some(Utc::now() + chrono::Duration::minutes(5));
+        let original_state = AppState {
+            blocked_until: Some(Utc::now() + chrono::Duration::minutes(10)),
+            in_bathroom_break: true,
+            bathroom_break_until: Some(Utc::now() + chrono::Duration::minutes(5)),
+            ..Default::default()
+        };
 
         original_state.save(&temp_path).unwrap();
 
@@ -193,15 +195,19 @@ mod tests {
 
     #[test]
     fn test_is_blocked_when_blocked_future() {
-        let mut state = AppState::default();
-        state.blocked_until = Some(Utc::now() + chrono::Duration::minutes(10));
+        let state = AppState {
+            blocked_until: Some(Utc::now() + chrono::Duration::minutes(10)),
+            ..Default::default()
+        };
         assert!(state.is_blocked());
     }
 
     #[test]
     fn test_is_blocked_when_blocked_past() {
-        let mut state = AppState::default();
-        state.blocked_until = Some(Utc::now() - chrono::Duration::minutes(10));
+        let state = AppState {
+            blocked_until: Some(Utc::now() - chrono::Duration::minutes(10)),
+            ..Default::default()
+        };
         assert!(!state.is_blocked());
     }
 
@@ -224,36 +230,44 @@ mod tests {
 
     #[test]
     fn test_is_bathroom_break_time_not_in_break() {
-        let mut state = AppState::default();
-        state.next_bathroom_break = Utc::now() - chrono::Duration::minutes(1); // Past time
-        state.in_bathroom_break = false;
+        let state = AppState {
+            next_bathroom_break: Utc::now() - chrono::Duration::minutes(1), // Past time
+            in_bathroom_break: false,
+            ..Default::default()
+        };
 
         assert!(state.is_bathroom_break_time(3));
     }
 
     #[test]
     fn test_is_bathroom_break_time_future() {
-        let mut state = AppState::default();
-        state.next_bathroom_break = Utc::now() + chrono::Duration::minutes(10); // Future time
-        state.in_bathroom_break = false;
+        let state = AppState {
+            next_bathroom_break: Utc::now() + chrono::Duration::minutes(10), // Future time
+            in_bathroom_break: false,
+            ..Default::default()
+        };
 
         assert!(!state.is_bathroom_break_time(3));
     }
 
     #[test]
     fn test_is_bathroom_break_time_currently_in_break() {
-        let mut state = AppState::default();
-        state.in_bathroom_break = true;
-        state.bathroom_break_until = Some(Utc::now() + chrono::Duration::minutes(5));
+        let state = AppState {
+            in_bathroom_break: true,
+            bathroom_break_until: Some(Utc::now() + chrono::Duration::minutes(5)),
+            ..Default::default()
+        };
 
         assert!(state.is_bathroom_break_time(3));
     }
 
     #[test]
     fn test_is_bathroom_break_time_break_expired() {
-        let mut state = AppState::default();
-        state.in_bathroom_break = true;
-        state.bathroom_break_until = Some(Utc::now() - chrono::Duration::minutes(5));
+        let state = AppState {
+            in_bathroom_break: true,
+            bathroom_break_until: Some(Utc::now() - chrono::Duration::minutes(5)),
+            ..Default::default()
+        };
 
         assert!(!state.is_bathroom_break_time(3));
     }
@@ -284,9 +298,11 @@ mod tests {
 
     #[test]
     fn test_end_bathroom_break() {
-        let mut state = AppState::default();
-        state.in_bathroom_break = true;
-        state.bathroom_break_until = Some(Utc::now() + chrono::Duration::minutes(5));
+        let mut state = AppState {
+            in_bathroom_break: true,
+            bathroom_break_until: Some(Utc::now() + chrono::Duration::minutes(5)),
+            ..Default::default()
+        };
 
         state.end_bathroom_break();
 

@@ -4,6 +4,12 @@ use std::process::Command;
 
 pub struct BackgroundManager;
 
+impl Default for BackgroundManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BackgroundManager {
     pub fn new() -> Self {
         BackgroundManager

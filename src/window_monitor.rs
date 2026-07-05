@@ -6,6 +6,9 @@ use x11::xlib::*;
 
 pub struct WindowMonitor {
     display: *mut Display,
+    net_wm_pid: Atom,
+    net_wm_name: Atom,
+    utf8_string: Atom,
 }
 
 impl WindowMonitor {
@@ -17,7 +20,19 @@ impl WindowMonitor {
                 return Err(anyhow!("Failed to open X11 display"));
             }
             info!("X11 display opened successfully");
-            Ok(WindowMonitor { display })
+
+            // Atoms are interned once here rather than on every window lookup:
+            // XInternAtom is a round trip to the X server, and these names never change.
+            let net_wm_pid = XInternAtom(display, c"_NET_WM_PID".as_ptr(), 0);
+            let net_wm_name = XInternAtom(display, c"_NET_WM_NAME".as_ptr(), 0);
+            let utf8_string = XInternAtom(display, c"UTF8_STRING".as_ptr(), 0);
+
+            Ok(WindowMonitor {
+                display,
+                net_wm_pid,
+                net_wm_name,
+                utf8_string,
+            })
         }
     }
 
@@ -66,10 +81,10 @@ impl WindowMonitor {
 
             debug!("XQueryTree returned {} child window(s)", nchildren);
 
-            let mut titles = Vec::new();
+            let child_windows = std::slice::from_raw_parts(children, nchildren as usize);
+            let mut titles = Vec::with_capacity(browser_pids.len());
 
-            for i in 0..nchildren {
-                let window = *children.offset(i as isize);
+            for (i, &window) in child_windows.iter().enumerate() {
                 if let Some(pid) = self.get_window_pid(window) {
                     if browser_pids.contains(&pid) {
                         if let Ok(title) = self.get_window_title(window) {
@@ -127,10 +142,10 @@ impl WindowMonitor {
 
             debug!("XQueryTree returned {} child window(s)", nchildren);
 
-            let mut titles = Vec::new();
+            let child_windows = std::slice::from_raw_parts(children, nchildren as usize);
+            let mut titles = Vec::with_capacity(child_windows.len());
 
-            for i in 0..nchildren {
-                let window = *children.offset(i as isize);
+            for (i, &window) in child_windows.iter().enumerate() {
                 if let Ok(title) = self.get_window_title(window) {
                     if !title.is_empty() {
                         trace!("Window {}: '{}'", i, title);
@@ -151,13 +166,7 @@ impl WindowMonitor {
 
     fn get_window_pid(&self, window: Window) -> Option<i32> {
         unsafe {
-            let net_wm_pid = XInternAtom(
-                self.display,
-                b"_NET_WM_PID\0".as_ptr() as *const i8,
-                0,
-            );
-
-            if net_wm_pid == 0 {
+            if self.net_wm_pid == 0 {
                 return None;
             }
 
@@ -170,7 +179,7 @@ impl WindowMonitor {
             let result = XGetWindowProperty(
                 self.display,
                 window,
-                net_wm_pid,
+                self.net_wm_pid,
                 0,
                 1,
                 0,
@@ -199,18 +208,7 @@ impl WindowMonitor {
         unsafe {
             // Try _NET_WM_NAME first (EWMH UTF-8, used by Chrome and modern apps).
             // XFetchName reads WM_NAME (legacy), which Chrome does not set.
-            let net_wm_name = XInternAtom(
-                self.display,
-                b"_NET_WM_NAME\0".as_ptr() as *const i8,
-                0,
-            );
-            let utf8_string = XInternAtom(
-                self.display,
-                b"UTF8_STRING\0".as_ptr() as *const i8,
-                0,
-            );
-
-            if net_wm_name != 0 && utf8_string != 0 {
+            if self.net_wm_name != 0 && self.utf8_string != 0 {
                 let mut actual_type: Atom = 0;
                 let mut actual_format: i32 = 0;
                 let mut nitems: u64 = 0;
@@ -220,11 +218,11 @@ impl WindowMonitor {
                 let result = XGetWindowProperty(
                     self.display,
                     window,
-                    net_wm_name,
+                    self.net_wm_name,
                     0,
                     1024,
                     0,
-                    utf8_string,
+                    self.utf8_string,
                     &mut actual_type,
                     &mut actual_format,
                     &mut nitems,
