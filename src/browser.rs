@@ -1,4 +1,5 @@
 use anyhow::Result;
+use log::{debug, error, info};
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use std::process::{Child, Command};
@@ -17,39 +18,61 @@ impl BrowserManager {
     }
 
     pub fn start_browser(&self, url: &str) -> Result<Child> {
+        info!("Starting browser: '{}' '{}'", self.executable, url);
         let child = Command::new(&self.executable).arg(url).spawn()?;
-
+        info!("Browser spawned with pid {}", child.id());
         Ok(child)
     }
 
     pub fn kill_browser_processes(&self) -> Result<()> {
         let pids = self.find_browser_pids()?;
 
+        info!("kill_browser_processes: found {} pid(s) for '{}'",
+            pids.len(), self.process_name);
+        debug!("PIDs to SIGTERM: {:?}", pids);
+
         for pid in pids {
             match signal::kill(Pid::from_raw(pid), Signal::SIGTERM) {
-                Ok(_) => println!("Terminated process {}", pid),
-                Err(e) => eprintln!("Failed to terminate process {}: {}", pid, e),
+                Ok(_) => {
+                    println!("Terminated process {}", pid);
+                    debug!("SIGTERM sent to pid {}", pid);
+                }
+                Err(e) => error!("Failed to terminate process {}: {}", pid, e),
             }
         }
 
         std::thread::sleep(std::time::Duration::from_secs(2));
 
         let remaining_pids = self.find_browser_pids()?;
+        if !remaining_pids.is_empty() {
+            info!("{} pid(s) still running after SIGTERM, sending SIGKILL", remaining_pids.len());
+            debug!("PIDs to SIGKILL: {:?}", remaining_pids);
+        }
+
         for pid in remaining_pids {
             match signal::kill(Pid::from_raw(pid), Signal::SIGKILL) {
-                Ok(_) => println!("Killed process {}", pid),
-                Err(e) => eprintln!("Failed to kill process {}: {}", pid, e),
+                Ok(_) => {
+                    println!("Killed process {}", pid);
+                    debug!("SIGKILL sent to pid {}", pid);
+                }
+                Err(e) => error!("Failed to kill process {}: {}", pid, e),
             }
         }
 
         Ok(())
     }
 
+    pub fn get_pids(&self) -> Vec<i32> {
+        self.find_browser_pids().unwrap_or_default()
+    }
+
     fn find_browser_pids(&self) -> Result<Vec<i32>> {
-        // Return empty vector if process name is empty
         if self.process_name.is_empty() {
+            debug!("find_browser_pids: process_name is empty, returning no pids");
             return Ok(Vec::new());
         }
+
+        debug!("find_browser_pids: pgrep -f '{}'", self.process_name);
 
         let output = Command::new("pgrep")
             .arg("-f")
@@ -57,6 +80,7 @@ impl BrowserManager {
             .output()?;
 
         if !output.status.success() {
+            debug!("pgrep returned no results (exit {})", output.status);
             return Ok(Vec::new());
         }
 
@@ -65,6 +89,8 @@ impl BrowserManager {
             .lines()
             .filter_map(|line| line.trim().parse().ok())
             .collect();
+
+        debug!("pgrep found pids: {:?}", pids);
 
         Ok(pids)
     }
@@ -80,9 +106,16 @@ mod tests {
     use super::*;
     use serial_test::serial;
 
+    fn make_manager(executable: &str, process_name: &str) -> BrowserManager {
+        BrowserManager::new(executable.to_string(), process_name.to_string())
+    }
+
     #[test]
     fn test_browser_manager_new() {
-        let manager = BrowserManager::new("google-chrome-stable".to_string(), "chrome".to_string());
+        let manager = BrowserManager::new(
+            "google-chrome-stable".to_string(),
+            "chrome".to_string(),
+        );
 
         assert_eq!(manager.executable, "google-chrome-stable");
         assert_eq!(manager.process_name, "chrome");
@@ -102,10 +135,7 @@ mod tests {
     #[test]
     #[serial]
     fn test_find_browser_pids_nonexistent_process() {
-        let manager = BrowserManager::new(
-            "nonexistent-browser-12345".to_string(),
-            "nonexistent-browser-12345".to_string(),
-        );
+        let manager = make_manager("nonexistent-browser-12345", "nonexistent-browser-12345");
 
         let pids = manager.find_browser_pids().unwrap();
         assert_eq!(pids.len(), 0);
@@ -114,21 +144,14 @@ mod tests {
     #[test]
     #[serial]
     fn test_has_running_processes_none() {
-        let manager = BrowserManager::new(
-            "nonexistent-browser-12345".to_string(),
-            "nonexistent-browser-12345".to_string(),
-        );
-
+        let manager = make_manager("nonexistent-browser-12345", "nonexistent-browser-12345");
         assert!(!manager.has_running_processes());
     }
 
     #[test]
     #[serial]
     fn test_start_browser_invalid_executable() {
-        let manager = BrowserManager::new(
-            "nonexistent-browser-executable-12345".to_string(),
-            "nonexistent-process".to_string(),
-        );
+        let manager = make_manager("nonexistent-browser-executable-12345", "nonexistent-process");
 
         let result = manager.start_browser("https://example.com");
         assert!(result.is_err());
@@ -137,64 +160,10 @@ mod tests {
     #[test]
     #[serial]
     fn test_kill_browser_processes_no_processes() {
-        let manager = BrowserManager::new(
-            "nonexistent-browser-12345".to_string(),
-            "nonexistent-browser-12345".to_string(),
-        );
+        let manager = make_manager("nonexistent-browser-12345", "nonexistent-browser-12345");
 
-        // Should not fail even if no processes exist
         let result = manager.kill_browser_processes();
         assert!(result.is_ok());
-    }
-
-    // Note: The following tests would require actual browser processes running
-    // and proper privileges to kill them. They are included for completeness
-    // but should be run in a controlled test environment.
-
-    #[test]
-    #[serial]
-    #[ignore] // Ignored by default as it requires a real browser process
-    fn test_start_browser_with_real_browser() {
-        let manager = BrowserManager::new("google-chrome-stable".to_string(), "chrome".to_string());
-
-        // This would actually start Chrome - only run in isolated test environment
-        let result = manager.start_browser("https://example.com");
-
-        if result.is_ok() {
-            // If we successfully started it, try to clean up
-            std::thread::sleep(std::time::Duration::from_secs(2));
-            let _ = manager.kill_browser_processes();
-        }
-    }
-
-    #[test]
-    #[serial]
-    #[ignore] // Ignored by default as it requires a real browser process
-    fn test_browser_lifecycle() {
-        let manager = BrowserManager::new("google-chrome-stable".to_string(), "chrome".to_string());
-
-        // Start browser
-        let child = manager.start_browser("https://example.com");
-        if child.is_err() {
-            // Skip test if Chrome is not available
-            return;
-        }
-
-        // Give it time to start
-        std::thread::sleep(std::time::Duration::from_secs(3));
-
-        // Check if processes are running
-        assert!(manager.has_running_processes());
-
-        // Kill processes
-        let result = manager.kill_browser_processes();
-        assert!(result.is_ok());
-
-        // Give it time to terminate
-        std::thread::sleep(std::time::Duration::from_secs(2));
-
-        // Check processes are gone (this might be flaky in real environments)
-        // assert!(!manager.has_running_processes());
     }
 
     #[test]
@@ -204,7 +173,6 @@ mod tests {
         assert_eq!(manager.executable, "");
         assert_eq!(manager.process_name, "");
 
-        // Starting with empty executable should fail
         let result = manager.start_browser("https://example.com");
         assert!(result.is_err());
     }
@@ -214,19 +182,14 @@ mod tests {
     fn test_find_browser_pids_empty_process_name() {
         let manager = BrowserManager::new("google-chrome-stable".to_string(), "".to_string());
 
-        // pgrep with empty pattern matches all processes, so we expect many results
-        let _pids = manager.find_browser_pids().unwrap();
-        // Just verify it doesn't crash and returns a valid vector
+        let pids = manager.find_browser_pids().unwrap();
+        assert_eq!(pids.len(), 0);
     }
 
     #[test]
     fn test_start_browser_url_variants() {
-        let manager = BrowserManager::new(
-            "nonexistent-browser".to_string(),
-            "nonexistent-process".to_string(),
-        );
+        let manager = make_manager("nonexistent-browser", "nonexistent-process");
 
-        // Test various URL formats (all should fail due to nonexistent browser)
         let urls = vec![
             "https://example.com",
             "http://example.com",
@@ -237,25 +200,21 @@ mod tests {
 
         for url in urls {
             let result = manager.start_browser(url);
-            assert!(result.is_err()); // Should fail due to nonexistent executable
+            assert!(result.is_err());
         }
     }
 
-    // Test to verify the process name matching logic
     #[test]
     #[serial]
     fn test_process_name_matching() {
-        // Test with common process names that might exist on the system
         let test_cases = vec![
-            ("sh", "sh"),         // Shell process likely exists
-            ("init", "init"),     // Init process should exist
-            ("kernel", "kernel"), // Kernel threads
+            ("sh", "sh"),
+            ("init", "init"),
+            ("kernel", "kernel"),
         ];
 
         for (executable, process_name) in test_cases {
             let manager = BrowserManager::new(executable.to_string(), process_name.to_string());
-
-            // Just test that find_browser_pids doesn't crash
             let result = manager.find_browser_pids();
             assert!(result.is_ok());
         }
@@ -263,13 +222,53 @@ mod tests {
 
     #[test]
     fn test_browser_manager_clone_behavior() {
-        // Test that we can create multiple instances
-        let manager1 = BrowserManager::new("google-chrome-stable".to_string(), "chrome".to_string());
-
+        let manager1 = BrowserManager::new(
+            "google-chrome-stable".to_string(),
+            "chrome".to_string(),
+        );
         let manager2 = BrowserManager::new("chromium".to_string(), "chromium".to_string());
 
         assert_eq!(manager1.executable, "google-chrome-stable");
         assert_eq!(manager2.executable, "chromium");
         assert_ne!(manager1.executable, manager2.executable);
+    }
+
+    #[test]
+    #[serial]
+    #[ignore]
+    fn test_start_browser_with_real_browser() {
+        let manager = BrowserManager::new(
+            "google-chrome-stable".to_string(),
+            "chrome".to_string(),
+        );
+
+        let result = manager.start_browser("https://example.com");
+        if result.is_ok() {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            let _ = manager.kill_browser_processes();
+        }
+    }
+
+    #[test]
+    #[serial]
+    #[ignore]
+    fn test_browser_lifecycle() {
+        let manager = BrowserManager::new(
+            "google-chrome-stable".to_string(),
+            "chrome".to_string(),
+        );
+
+        let child = manager.start_browser("https://example.com");
+        if child.is_err() {
+            return;
+        }
+
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        assert!(manager.has_running_processes());
+
+        let result = manager.kill_browser_processes();
+        assert!(result.is_ok());
+
+        std::thread::sleep(std::time::Duration::from_secs(2));
     }
 }

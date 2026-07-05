@@ -10,8 +10,9 @@ timeouts:
   blacklist_timeout_minutes: 2
   bathroom_break_minutes: 1
   bathroom_break_interval_hours: 1
-  max_grace_retries: 2
-  grace_retry_window_minutes: 1
+  grace_retries: 2
+  hard_lock_minutes: 5
+  retry_reset_minutes: 1
 
 backgrounds:
   normal: "/tmp/test_normal.jpg"

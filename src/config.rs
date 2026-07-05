@@ -29,8 +29,24 @@ pub struct TimeoutConfig {
     pub blacklist_timeout_minutes: u64,
     pub bathroom_break_minutes: u64,
     pub bathroom_break_interval_hours: u64,
-    pub max_grace_retries: u64,
-    pub grace_retry_window_minutes: u64,
+    #[serde(default = "default_grace_retries")]
+    pub grace_retries: u32,
+    #[serde(default = "default_hard_lock_minutes")]
+    pub hard_lock_minutes: u64,
+    #[serde(default = "default_retry_reset_minutes")]
+    pub retry_reset_minutes: u64,
+}
+
+fn default_grace_retries() -> u32 {
+    3
+}
+
+fn default_hard_lock_minutes() -> u64 {
+    40
+}
+
+fn default_retry_reset_minutes() -> u64 {
+    20
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -45,6 +61,18 @@ pub struct FileConfig {
     pub blacklist: String,
     pub whitelist: String,
     pub state_file: String,
+    #[serde(default = "default_log_file")]
+    pub log_file: String,
+    #[serde(default = "default_titles_file")]
+    pub titles_file: String,
+}
+
+fn default_log_file() -> String {
+    format!("{}/inappropriate-video-handler/ivh.log", xdg_cache_dir())
+}
+
+fn default_titles_file() -> String {
+    format!("{}/inappropriate-video-handler/window-titles.txt", xdg_cache_dir())
 }
 
 impl Default for Config {
@@ -52,7 +80,7 @@ impl Default for Config {
         Config {
             browser: BrowserConfig {
                 executable: "google-chrome-stable".to_string(),
-                url: "https://www.google.com".to_string(),
+                url: "https://www.youtube.com".to_string(),
                 process_name: "chrome".to_string(),
             },
             monitoring: MonitoringConfig {
@@ -60,29 +88,65 @@ impl Default for Config {
             },
             timeouts: TimeoutConfig {
                 blacklist_timeout_minutes: 10,
-                bathroom_break_minutes: 10,
-                bathroom_break_interval_hours: 3,
-                max_grace_retries: 2,
-                grace_retry_window_minutes: 10,
+                bathroom_break_minutes: 4,
+                bathroom_break_interval_hours: 2,
+                grace_retries: 3,
+                hard_lock_minutes: 40,
+                retry_reset_minutes: 20,
             },
             backgrounds: BackgroundConfig {
-                normal: "/home/user/backgrounds/normal.jpg".to_string(),
-                blocked: "/home/user/backgrounds/blocked.jpg".to_string(),
-                bathroom_break: "/home/user/backgrounds/bathroom.jpg".to_string(),
+                normal: format!("{}/inappropriate-video-handler/wallpaper/normal.jpg", xdg_config_dir()),
+                blocked: format!("{}/inappropriate-video-handler/wallpaper/blocked.jpg", xdg_config_dir()),
+                bathroom_break: format!("{}/inappropriate-video-handler/wallpaper/bathroom.jpg", xdg_config_dir()),
             },
             files: FileConfig {
-                blacklist: "blacklist.txt".to_string(),
-                whitelist: "whitelist.txt".to_string(),
-                state_file: "/tmp/ivh_state.json".to_string(),
+                blacklist: format!("{}/inappropriate-video-handler/BlackList.txt", xdg_config_dir()),
+                whitelist: format!("{}/inappropriate-video-handler/WhiteList.txt", xdg_config_dir()),
+                state_file: format!("{}/inappropriate-video-handler/state.json", xdg_cache_dir()),
+                log_file: format!("{}/inappropriate-video-handler/ivh.log", xdg_cache_dir()),
+                titles_file: format!("{}/inappropriate-video-handler/window-titles.txt", xdg_cache_dir()),
             },
         }
     }
 }
 
+fn xdg_config_dir() -> String {
+    std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| {
+        std::env::var("HOME")
+            .map(|h| format!("{}/.config", h))
+            .unwrap_or_else(|_| "~/.config".to_string())
+    })
+}
+
+fn xdg_cache_dir() -> String {
+    std::env::var("XDG_CACHE_HOME").unwrap_or_else(|_| {
+        std::env::var("HOME")
+            .map(|h| format!("{}/.cache", h))
+            .unwrap_or_else(|_| "~/.cache".to_string())
+    })
+}
+
+fn expand_tilde(path: String) -> String {
+    if path.starts_with("~/") {
+        if let Ok(home) = std::env::var("HOME") {
+            return format!("{}/{}", home, &path[2..]);
+        }
+    }
+    path
+}
+
 impl Config {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let content = fs::read_to_string(path)?;
-        let config: Config = serde_yaml::from_str(&content)?;
+        let mut config: Config = serde_yaml::from_str(&content)?;
+        config.backgrounds.normal = expand_tilde(config.backgrounds.normal);
+        config.backgrounds.blocked = expand_tilde(config.backgrounds.blocked);
+        config.backgrounds.bathroom_break = expand_tilde(config.backgrounds.bathroom_break);
+        config.files.blacklist = expand_tilde(config.files.blacklist);
+        config.files.whitelist = expand_tilde(config.files.whitelist);
+        config.files.state_file = expand_tilde(config.files.state_file);
+        config.files.log_file = expand_tilde(config.files.log_file);
+        config.files.titles_file = expand_tilde(config.files.titles_file);
         Ok(config)
     }
 }
@@ -98,29 +162,29 @@ mod tests {
         let config = Config::default();
 
         assert_eq!(config.browser.executable, "google-chrome-stable");
-        assert_eq!(config.browser.url, "https://www.google.com");
+        assert_eq!(config.browser.url, "https://www.youtube.com");
         assert_eq!(config.browser.process_name, "chrome");
         assert_eq!(config.monitoring.check_frequency_seconds, 60);
         assert_eq!(config.timeouts.blacklist_timeout_minutes, 10);
-        assert_eq!(config.timeouts.bathroom_break_minutes, 10);
-        assert_eq!(config.timeouts.bathroom_break_interval_hours, 3);
-        assert_eq!(config.timeouts.max_grace_retries, 2);
-        assert_eq!(config.timeouts.grace_retry_window_minutes, 10);
+        assert_eq!(config.timeouts.bathroom_break_minutes, 4);
+        assert_eq!(config.timeouts.bathroom_break_interval_hours, 2);
         assert_eq!(
             config.backgrounds.normal,
-            "/home/user/backgrounds/normal.jpg"
+            format!("{}/inappropriate-video-handler/wallpaper/normal.jpg", xdg_config_dir())
         );
         assert_eq!(
             config.backgrounds.blocked,
-            "/home/user/backgrounds/blocked.jpg"
+            format!("{}/inappropriate-video-handler/wallpaper/blocked.jpg", xdg_config_dir())
         );
         assert_eq!(
             config.backgrounds.bathroom_break,
-            "/home/user/backgrounds/bathroom.jpg"
+            format!("{}/inappropriate-video-handler/wallpaper/bathroom.jpg", xdg_config_dir())
         );
-        assert_eq!(config.files.blacklist, "blacklist.txt");
-        assert_eq!(config.files.whitelist, "whitelist.txt");
-        assert_eq!(config.files.state_file, "/tmp/ivh_state.json");
+        assert_eq!(config.files.blacklist, format!("{}/inappropriate-video-handler/BlackList.txt", xdg_config_dir()));
+        assert_eq!(config.files.whitelist, format!("{}/inappropriate-video-handler/WhiteList.txt", xdg_config_dir()));
+        assert_eq!(config.files.state_file, format!("{}/inappropriate-video-handler/state.json", xdg_cache_dir()));
+        assert_eq!(config.files.log_file, format!("{}/inappropriate-video-handler/ivh.log", xdg_cache_dir()));
+        assert_eq!(config.files.titles_file, format!("{}/inappropriate-video-handler/window-titles.txt", xdg_cache_dir()));
     }
 
     #[test]
@@ -138,8 +202,6 @@ timeouts:
   blacklist_timeout_minutes: 15
   bathroom_break_minutes: 5
   bathroom_break_interval_hours: 2
-  max_grace_retries: 3
-  grace_retry_window_minutes: 20
 
 backgrounds:
   normal: "/test/normal.png"
@@ -164,8 +226,6 @@ files:
         assert_eq!(config.timeouts.blacklist_timeout_minutes, 15);
         assert_eq!(config.timeouts.bathroom_break_minutes, 5);
         assert_eq!(config.timeouts.bathroom_break_interval_hours, 2);
-        assert_eq!(config.timeouts.max_grace_retries, 3);
-        assert_eq!(config.timeouts.grace_retry_window_minutes, 20);
         assert_eq!(config.backgrounds.normal, "/test/normal.png");
         assert_eq!(config.backgrounds.blocked, "/test/blocked.png");
         assert_eq!(config.backgrounds.bathroom_break, "/test/break.png");
@@ -233,15 +293,14 @@ browser:
             blacklist_timeout_minutes: 20,
             bathroom_break_minutes: 15,
             bathroom_break_interval_hours: 4,
-            max_grace_retries: 1,
-            grace_retry_window_minutes: 5,
+            grace_retries: 3,
+            hard_lock_minutes: 40,
+            retry_reset_minutes: 20,
         };
 
         assert_eq!(config.blacklist_timeout_minutes, 20);
         assert_eq!(config.bathroom_break_minutes, 15);
         assert_eq!(config.bathroom_break_interval_hours, 4);
-        assert_eq!(config.max_grace_retries, 1);
-        assert_eq!(config.grace_retry_window_minutes, 5);
     }
 
     #[test]
@@ -263,10 +322,14 @@ browser:
             blacklist: "test_blacklist.txt".to_string(),
             whitelist: "test_whitelist.txt".to_string(),
             state_file: "/test/state.json".to_string(),
+            log_file: "/test/ivh.log".to_string(),
+            titles_file: "/test/window-titles.txt".to_string(),
         };
 
         assert_eq!(config.blacklist, "test_blacklist.txt");
         assert_eq!(config.whitelist, "test_whitelist.txt");
         assert_eq!(config.state_file, "/test/state.json");
+        assert_eq!(config.log_file, "/test/ivh.log");
+        assert_eq!(config.titles_file, "/test/window-titles.txt");
     }
 }

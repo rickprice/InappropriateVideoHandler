@@ -1,6 +1,6 @@
 [package]
 name = "inappropriate-video-handler"
-version = "0.2.0"
+version = "0.4.0"
 edition = "2021"
 
 [lib]
@@ -23,6 +23,8 @@ x11 = { version = "2.21", features = ["xlib"] }
 libc = "0.2"
 nix = { version = "0.31", features = ["signal", "process"] }
 anyhow = "1.0"
+log = "0.4"
+fern = "0.7"
 
 [build-dependencies]
 pkg-config = "0.3"

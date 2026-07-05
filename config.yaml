@@ -1,24 +1,28 @@
 browser:
   executable: "google-chrome-stable"
-  url: "https://www.google.com"
+  url: "https://www.youtube.com"
   process_name: "chrome"
+
 
 monitoring:
   check_frequency_seconds: 60
 
 timeouts:
   blacklist_timeout_minutes: 10
-  bathroom_break_minutes: 10
-  bathroom_break_interval_hours: 3
-  max_grace_retries: 2
-  grace_retry_window_minutes: 10
+  bathroom_break_minutes: 4
+  bathroom_break_interval_hours: 2
+  grace_retries: 3
+  hard_lock_minutes: 40
+  retry_reset_minutes: 20
 
 backgrounds:
-  normal: "/home/user/backgrounds/normal.jpg"
-  blocked: "/home/user/backgrounds/blocked.jpg"
-  bathroom_break: "/home/user/backgrounds/bathroom.jpg"
+  normal: "~/.config/inappropriate-video-handler/wallpaper/normal.jpg"
+  blocked: "~/.config/inappropriate-video-handler/wallpaper/blocked.jpg"
+  bathroom_break: "~/.config/inappropriate-video-handler/wallpaper/bathroom.jpg"
 
 files:
-  blacklist: "blacklist.txt"
-  whitelist: "whitelist.txt"
-  state_file: "/tmp/ivh_state.json"
+  blacklist: "~/.config/inappropriate-video-handler/BlackList.txt"
+  whitelist: "~/.config/inappropriate-video-handler/WhiteList.txt"
+  state_file: "~/.cache/inappropriate-video-handler/state.json"
+  log_file: "~/.cache/inappropriate-video-handler/ivh.log"
+  titles_file: "~/.cache/inappropriate-video-handler/window-titles.txt"
