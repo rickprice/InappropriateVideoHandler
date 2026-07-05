@@ -258,7 +258,7 @@ fn test_edge_case_handling() {
 
     let filter = Filter::new(&empty_blacklist, &empty_whitelist).unwrap();
     assert!(!filter.is_blacklisted("any content"));
-    assert!(!filter.check_titles(&vec!["any content".to_string()]));
+    assert!(!filter.check_titles(&["any content".to_string()]));
 
     // Test browser manager with empty process name
     let manager = BrowserManager::new("some_executable".to_string(), "".to_string());

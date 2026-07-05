@@ -41,30 +41,15 @@ impl Filter {
     }
 
     pub fn is_blacklisted(&self, title: &str) -> bool {
-        for pattern in &self.blacklist {
-            if pattern.is_match(title) && !self.is_whitelisted(title) {
-                return true;
-            }
-        }
-        false
+        self.blacklist.iter().any(|pattern| pattern.is_match(title)) && !self.is_whitelisted(title)
     }
 
     pub fn is_whitelisted(&self, title: &str) -> bool {
-        for pattern in &self.whitelist {
-            if pattern.is_match(title) {
-                return true;
-            }
-        }
-        false
+        self.whitelist.iter().any(|pattern| pattern.is_match(title))
     }
 
     pub fn check_titles(&self, titles: &[String]) -> bool {
-        for title in titles {
-            if self.is_blacklisted(title) {
-                return true;
-            }
-        }
-        false
+        titles.iter().any(|title| self.is_blacklisted(title))
     }
 }
 

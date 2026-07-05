@@ -56,7 +56,7 @@ impl WindowMonitor {
                 return Err(anyhow!("Failed to query window tree"));
             }
 
-            let mut titles = Vec::new();
+            let mut titles = Vec::with_capacity(nchildren as usize);
 
             for i in 0..nchildren {
                 let window = *children.offset(i as isize);

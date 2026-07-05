@@ -7,7 +7,6 @@ mod window_monitor;
 
 use chrono::Utc;
 use clap::{Arg, Command};
-use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 
 use background::BackgroundManager;
@@ -121,15 +120,12 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
 }
 
 async fn run_daemon(config: &Config) -> anyhow::Result<()> {
-    let window_monitor = Arc::new(WindowMonitor::new()?);
-    let filter = Arc::new(Filter::new(
-        &config.files.blacklist,
-        &config.files.whitelist,
-    )?);
-    let browser_manager = Arc::new(BrowserManager::new(
+    let window_monitor = WindowMonitor::new()?;
+    let filter = Filter::new(&config.files.blacklist, &config.files.whitelist)?;
+    let browser_manager = BrowserManager::new(
         config.browser.executable.clone(),
         config.browser.process_name.clone(),
-    ));
+    );
 
     println!("Starting daemon mode...");
 
