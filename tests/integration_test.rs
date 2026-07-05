@@ -27,6 +27,8 @@ fn create_test_config() -> Config {
             blacklist_timeout_minutes: 5,
             bathroom_break_minutes: 2,
             bathroom_break_interval_hours: 1,
+            max_grace_retries: 2,
+            grace_retry_window_minutes: 10,
         },
         backgrounds: BackgroundConfig {
             normal: "/tmp/test_normal.jpg".to_string(),

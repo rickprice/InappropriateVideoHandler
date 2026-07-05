@@ -136,13 +136,32 @@ async fn run_daemon(config: &Config) -> anyhow::Result<()> {
     loop {
         let mut state = AppState::load(&config.files.state_file)?;
 
+        state.clear_expired_block();
+
         if let Ok(titles) = window_monitor.get_all_window_titles() {
             if filter.check_titles(&titles) {
                 println!("Blacklisted content detected, killing browser");
                 browser_manager.kill_browser_processes()?;
-                state.block_browser(config.timeouts.blacklist_timeout_minutes);
+
+                let hard_blocked = state.record_violation(
+                    config.timeouts.max_grace_retries,
+                    config.timeouts.grace_retry_window_minutes,
+                    config.timeouts.blacklist_timeout_minutes,
+                );
                 state.save(&config.files.state_file)?;
-                BackgroundManager::set_blocked_background(&config.backgrounds.blocked)?;
+
+                if hard_blocked {
+                    println!(
+                        "Grace retries exhausted, blocking browser for {} minutes",
+                        config.timeouts.blacklist_timeout_minutes
+                    );
+                    BackgroundManager::set_blocked_background(&config.backgrounds.blocked)?;
+                } else {
+                    println!(
+                        "Grace retry {}/{} used, browser may be restarted",
+                        state.grace_retry_count, config.timeouts.max_grace_retries
+                    );
+                }
             }
         }
 

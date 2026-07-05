@@ -10,6 +10,8 @@ pub struct AppState {
     pub next_bathroom_break: DateTime<Utc>,
     pub in_bathroom_break: bool,
     pub bathroom_break_until: Option<DateTime<Utc>>,
+    pub grace_retry_count: u64,
+    pub last_violation_at: Option<DateTime<Utc>>,
 }
 
 impl AppState {
@@ -50,6 +52,57 @@ impl AppState {
         self.blocked_until = Some(Utc::now() + chrono::Duration::minutes(timeout_minutes as i64));
     }
 
+    /// Records a blacklist violation, applying grace-retry logic.
+    ///
+    /// If the previous violation happened longer ago than `grace_retry_window_minutes`
+    /// (and no hard block is currently active), the grace counter is treated as reset
+    /// (the user "behaved" long enough). Otherwise the counter accumulates. Once the
+    /// count exceeds `max_grace_retries`, a hard block of `hard_timeout_minutes` is
+    /// applied. The counter stays pinned above the limit — and any further violation
+    /// keeps re-applying the hard block — until the block fully runs out; only
+    /// `clear_expired_block` resets it after that point.
+    ///
+    /// Returns `true` if this violation triggered (or re-applied) a hard block.
+    pub fn record_violation(
+        &mut self,
+        max_grace_retries: u64,
+        grace_retry_window_minutes: u64,
+        hard_timeout_minutes: u64,
+    ) -> bool {
+        let now = Utc::now();
+
+        if !self.is_blocked() {
+            if let Some(last) = self.last_violation_at {
+                if now - last > chrono::Duration::minutes(grace_retry_window_minutes as i64) {
+                    self.grace_retry_count = 0;
+                }
+            }
+        }
+
+        self.last_violation_at = Some(now);
+        self.grace_retry_count += 1;
+
+        if self.grace_retry_count > max_grace_retries {
+            self.block_browser(hard_timeout_minutes);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Resets the grace-retry counter once a previously-applied hard block has fully
+    /// run out. Must be called before `record_violation` will grant fresh grace retries
+    /// after a hard block.
+    pub fn clear_expired_block(&mut self) {
+        if self.grace_retry_count > 0 && !self.is_blocked() {
+            if let Some(blocked_until) = self.blocked_until {
+                if Utc::now() >= blocked_until {
+                    self.grace_retry_count = 0;
+                }
+            }
+        }
+    }
+
     pub fn start_bathroom_break(&mut self, duration_minutes: u64, interval_hours: u64) {
         self.in_bathroom_break = true;
         self.bathroom_break_until =
@@ -68,6 +121,8 @@ impl AppState {
             next_bathroom_break: Utc::now() + chrono::Duration::hours(3),
             in_bathroom_break: false,
             bathroom_break_until: None,
+            grace_retry_count: 0,
+            last_violation_at: None,
         }
     }
 }
@@ -85,6 +140,8 @@ mod tests {
         assert!(state.blocked_until.is_none());
         assert!(!state.in_bathroom_break);
         assert!(state.bathroom_break_until.is_none());
+        assert_eq!(state.grace_retry_count, 0);
+        assert!(state.last_violation_at.is_none());
     }
 
     #[test]
@@ -257,6 +314,85 @@ mod tests {
             .num_seconds()
             .abs();
         assert!(time_diff < 2); // Allow 2 seconds difference
+    }
+
+    #[test]
+    fn test_record_violation_within_grace_limit() {
+        let mut state = AppState::default();
+
+        // max_grace_retries = 2: first two violations should not hard-block
+        assert!(!state.record_violation(2, 10, 15));
+        assert!(!state.is_blocked());
+        assert_eq!(state.grace_retry_count, 1);
+
+        assert!(!state.record_violation(2, 10, 15));
+        assert!(!state.is_blocked());
+        assert_eq!(state.grace_retry_count, 2);
+    }
+
+    #[test]
+    fn test_record_violation_exceeds_grace_limit() {
+        let mut state = AppState::default();
+
+        assert!(!state.record_violation(2, 10, 15));
+        assert!(!state.record_violation(2, 10, 15));
+        // Third violation exceeds the grace limit of 2 -> hard block
+        assert!(state.record_violation(2, 10, 15));
+        assert!(state.is_blocked());
+        // Counter stays pinned above the limit until the block fully expires
+        assert_eq!(state.grace_retry_count, 3);
+    }
+
+    #[test]
+    fn test_record_violation_during_active_block_reapplies_block() {
+        let mut state = AppState::default();
+
+        state.record_violation(2, 10, 15);
+        state.record_violation(2, 10, 15);
+        state.record_violation(2, 10, 15); // triggers hard block
+        let first_blocked_until = state.blocked_until.unwrap();
+
+        // A further violation while still blocked should re-apply (extend) the block
+        // rather than granting a fresh grace window.
+        assert!(state.record_violation(2, 10, 15));
+        assert!(state.blocked_until.unwrap() >= first_blocked_until);
+        assert_eq!(state.grace_retry_count, 4);
+    }
+
+    #[test]
+    fn test_clear_expired_block_resets_grace_count() {
+        let mut state = AppState::default();
+
+        state.record_violation(2, 10, 15);
+        state.record_violation(2, 10, 15);
+        state.record_violation(2, 10, 15); // triggers hard block
+        assert_eq!(state.grace_retry_count, 3);
+
+        // Block hasn't expired yet -> counter should remain pinned
+        state.clear_expired_block();
+        assert_eq!(state.grace_retry_count, 3);
+
+        // Simulate the hard block having fully run out
+        state.blocked_until = Some(Utc::now() - chrono::Duration::minutes(1));
+        state.clear_expired_block();
+        assert_eq!(state.grace_retry_count, 0);
+    }
+
+    #[test]
+    fn test_record_violation_resets_after_quiet_window() {
+        let mut state = AppState::default();
+
+        state.record_violation(2, 10, 15);
+        state.record_violation(2, 10, 15);
+        assert_eq!(state.grace_retry_count, 2);
+
+        // Simulate a violation that happened outside the grace retry window
+        state.last_violation_at = Some(Utc::now() - chrono::Duration::minutes(15));
+
+        // Should be treated as a fresh grace window, not a hard block
+        assert!(!state.record_violation(2, 10, 15));
+        assert!(!state.is_blocked());
+        assert_eq!(state.grace_retry_count, 1);
     }
 
     #[test]

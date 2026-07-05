@@ -29,6 +29,8 @@ pub struct TimeoutConfig {
     pub blacklist_timeout_minutes: u64,
     pub bathroom_break_minutes: u64,
     pub bathroom_break_interval_hours: u64,
+    pub max_grace_retries: u64,
+    pub grace_retry_window_minutes: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -60,6 +62,8 @@ impl Default for Config {
                 blacklist_timeout_minutes: 10,
                 bathroom_break_minutes: 10,
                 bathroom_break_interval_hours: 3,
+                max_grace_retries: 2,
+                grace_retry_window_minutes: 10,
             },
             backgrounds: BackgroundConfig {
                 normal: "/home/user/backgrounds/normal.jpg".to_string(),
@@ -100,6 +104,8 @@ mod tests {
         assert_eq!(config.timeouts.blacklist_timeout_minutes, 10);
         assert_eq!(config.timeouts.bathroom_break_minutes, 10);
         assert_eq!(config.timeouts.bathroom_break_interval_hours, 3);
+        assert_eq!(config.timeouts.max_grace_retries, 2);
+        assert_eq!(config.timeouts.grace_retry_window_minutes, 10);
         assert_eq!(
             config.backgrounds.normal,
             "/home/user/backgrounds/normal.jpg"
@@ -132,6 +138,8 @@ timeouts:
   blacklist_timeout_minutes: 15
   bathroom_break_minutes: 5
   bathroom_break_interval_hours: 2
+  max_grace_retries: 3
+  grace_retry_window_minutes: 20
 
 backgrounds:
   normal: "/test/normal.png"
@@ -156,6 +164,8 @@ files:
         assert_eq!(config.timeouts.blacklist_timeout_minutes, 15);
         assert_eq!(config.timeouts.bathroom_break_minutes, 5);
         assert_eq!(config.timeouts.bathroom_break_interval_hours, 2);
+        assert_eq!(config.timeouts.max_grace_retries, 3);
+        assert_eq!(config.timeouts.grace_retry_window_minutes, 20);
         assert_eq!(config.backgrounds.normal, "/test/normal.png");
         assert_eq!(config.backgrounds.blocked, "/test/blocked.png");
         assert_eq!(config.backgrounds.bathroom_break, "/test/break.png");
@@ -223,11 +233,15 @@ browser:
             blacklist_timeout_minutes: 20,
             bathroom_break_minutes: 15,
             bathroom_break_interval_hours: 4,
+            max_grace_retries: 1,
+            grace_retry_window_minutes: 5,
         };
 
         assert_eq!(config.blacklist_timeout_minutes, 20);
         assert_eq!(config.bathroom_break_minutes, 15);
         assert_eq!(config.bathroom_break_interval_hours, 4);
+        assert_eq!(config.max_grace_retries, 1);
+        assert_eq!(config.grace_retry_window_minutes, 5);
     }
 
     #[test]

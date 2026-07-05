@@ -40,9 +40,11 @@ monitoring:
   check_frequency_seconds: 60     # How often to check window titles
 
 timeouts:
-  blacklist_timeout_minutes: 10   # How long to block after blacklist match
+  blacklist_timeout_minutes: 10   # How long to hard-block after grace retries are exhausted
   bathroom_break_minutes: 10      # Duration of bathroom breaks
   bathroom_break_interval_hours: 3 # How often to enforce breaks
+  max_grace_retries: 2             # Number of blacklist hits allowed before a hard block
+  grace_retry_window_minutes: 10   # Quiet period needed with no hits to reset the grace count
 
 backgrounds:
   normal: "/path/to/normal.jpg"        # Normal state background
@@ -96,14 +98,16 @@ Contains regex patterns that override blacklist matches:
 2. **Pattern Matching**: Compares titles against blacklist patterns
 3. **Whitelist Override**: Checks if blacklisted content is whitelisted
 4. **Browser Management**: Kills browser processes when inappropriate content is detected
-5. **Timeout Enforcement**: Prevents browser restart until timeout expires
-6. **Background Updates**: Changes wallpaper to reflect current state
-7. **Bathroom Breaks**: Enforces periodic breaks independent of content detection
+5. **Grace Retries**: The first `max_grace_retries` detections within a `grace_retry_window_minutes` window only kill the browser, letting it be restarted immediately; if no further hits occur within the window, the grace count resets. Exceeding the limit triggers a hard block for `blacklist_timeout_minutes` — any further hits during that block re-apply it, and the grace count only resets once the block fully runs out.
+6. **Timeout Enforcement**: Prevents browser restart until timeout expires
+7. **Background Updates**: Changes wallpaper to reflect current state
+8. **Bathroom Breaks**: Enforces periodic breaks independent of content detection
 
 ## State Persistence
 
 The program maintains state in a JSON file (configurable location) that persists:
 - Blacklist timeout end time
+- Grace retry count and time of last violation
 - Next scheduled bathroom break time
 - Current bathroom break status
 
