@@ -172,9 +172,9 @@ fn test_filter_find_blacklisted_title_whitelisted() {
     assert!(filter.find_blacklisted_title(&titles).is_none());
 }
 
-#[test]
+#[tokio::test]
 #[serial]
-fn test_browser_manager_integration() {
+async fn test_browser_manager_integration() {
     let manager = BrowserManager::new(
         "echo".to_string(),
         "nonexistent-process".to_string(),
@@ -185,7 +185,7 @@ fn test_browser_manager_integration() {
 
     assert!(!manager.has_running_processes());
 
-    let result = manager.kill_browser_processes();
+    let result = manager.kill_browser_processes().await;
     assert!(result.is_ok());
 }
 
@@ -199,8 +199,8 @@ fn test_background_manager_integration() {
     assert!(bg.set_bathroom_break_background("/tmp/test_break.jpg").is_ok());
 }
 
-#[test]
-fn test_complete_workflow_simulation() {
+#[tokio::test]
+async fn test_complete_workflow_simulation() {
     let temp_dir = TempDir::new().unwrap();
     let state_file = temp_dir.path().join("workflow_state.json");
     let (blacklist_file, whitelist_file) = create_temp_filter_files();
@@ -216,7 +216,7 @@ fn test_complete_workflow_simulation() {
         assert_eq!(title, "inappropriate porn content");
         assert!(!pattern.is_empty());
 
-        let _ = manager.kill_browser_processes();
+        let _ = manager.kill_browser_processes().await;
         state.block_browser(10);
         let _ = BackgroundManager::new().set_blocked_background("/tmp/blocked.jpg");
     }
@@ -248,7 +248,7 @@ fn test_timeout_expiration_logic() {
 
     state.start_bathroom_break(0, 1);
     std::thread::sleep(std::time::Duration::from_millis(10));
-    assert!(!state.is_bathroom_break_time(1));
+    assert!(!state.is_bathroom_break_time());
 }
 
 #[test]

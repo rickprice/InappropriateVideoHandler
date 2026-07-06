@@ -75,15 +75,12 @@ impl Filter {
     }
 
     pub fn is_whitelisted(&self, title: &str) -> bool {
-        for pattern in &self.whitelist {
-            let matched = pattern.is_match(title);
+        self.whitelist.iter().any(|p| {
+            let matched = p.is_match(title);
             trace!("  Whitelist pattern '{}': {}",
-                pattern.as_str(), if matched { "MATCH" } else { "no match" });
-            if matched {
-                return true;
-            }
-        }
-        false
+                p.as_str(), if matched { "MATCH" } else { "no match" });
+            matched
+        })
     }
 
     /// Returns the first (title, pattern_string) pair that is blacklisted, or None.
@@ -91,13 +88,14 @@ impl Filter {
         info!("find_blacklisted_title: checking {} title(s)", titles.len());
         for title in titles {
             debug!("  Checking: '{}'", title);
-            for pattern in &self.blacklist {
-                let matched = pattern.is_match(title);
+            if let Some(pattern) = self.blacklist.iter().find(|p| {
+                let matched = p.is_match(title);
                 trace!("  '{}' vs pattern '{}': {}",
-                    title, pattern.as_str(), if matched { "MATCH" } else { "no match" });
-                if matched && !self.is_whitelisted(title) {
-                    info!("Blacklist hit: title='{}' pattern='{}'",
-                        title, pattern.as_str());
+                    title, p.as_str(), if matched { "MATCH" } else { "no match" });
+                matched
+            }) {
+                if !self.is_whitelisted(title) {
+                    info!("Blacklist hit: title='{}' pattern='{}'", title, pattern.as_str());
                     return Some((title.clone(), pattern.as_str().to_string()));
                 }
             }

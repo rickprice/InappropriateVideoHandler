@@ -12,7 +12,6 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::io::Write as _;
 use std::path::Path;
-use std::sync::Arc;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::time::{sleep, Duration};
 
@@ -49,6 +48,14 @@ fn init_logging(log_level: &str, log_file: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Background wallpaper state used to avoid redundant feh calls.
+#[derive(PartialEq)]
+enum BgMode {
+    Normal,
+    Blocked,
+    Break,
+}
+
 fn record_titles(titles_file: &str, titles: &[String]) -> anyhow::Result<()> {
     let mut existing: BTreeSet<String> = BTreeSet::new();
 
@@ -62,9 +69,7 @@ fn record_titles(titles_file: &str, titles: &[String]) -> anyhow::Result<()> {
     }
 
     let before = existing.len();
-    for title in titles {
-        existing.insert(title.clone());
-    }
+    existing.extend(titles.iter().cloned());
 
     if existing.len() != before {
         if let Some(parent) = Path::new(titles_file).parent() {
@@ -182,17 +187,17 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
     if state.is_blocked() {
         println!("Browser is currently blocked");
         info!("Browser blocked until {:?}", state.blocked_until);
-        browser_manager.kill_browser_processes()?;
+        browser_manager.kill_browser_processes().await?;
         bg.set_blocked_background(&config.backgrounds.blocked)?;
         return Ok(());
     }
 
-    if state.is_bathroom_break_time(config.timeouts.bathroom_break_interval_hours) {
+    if state.is_bathroom_break_time() {
         if !state.in_bathroom_break {
             info!("Starting bathroom break: duration={}m interval={}h",
                 config.timeouts.bathroom_break_minutes,
                 config.timeouts.bathroom_break_interval_hours);
-            browser_manager.kill_browser_processes()?;
+            browser_manager.kill_browser_processes().await?;
             state.start_bathroom_break(
                 config.timeouts.bathroom_break_minutes,
                 config.timeouts.bathroom_break_interval_hours,
@@ -205,7 +210,7 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
                 if Utc::now() < until {
                     println!("It's bathroom break time");
                     info!("Bathroom break active until {}", until);
-                    browser_manager.kill_browser_processes()?;
+                    browser_manager.kill_browser_processes().await?;
                     bg.set_bathroom_break_background(&config.backgrounds.bathroom_break)?;
                     return Ok(());
                 } else {
@@ -222,7 +227,7 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
     // Reset the violation counter only if the configured quiet window has elapsed
     // since the last violation — not unconditionally on every browser start.
     if state.violation_count > 0 {
-        let quiet_elapsed = state.violation_window_start.map_or(true, |last| {
+        let quiet_elapsed = state.violation_window_start.is_none_or(|last| {
             (Utc::now() - last).num_minutes() >= config.timeouts.retry_reset_minutes as i64
         });
         if quiet_elapsed {
@@ -250,22 +255,22 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
 
 async fn run_daemon(config: &Config) -> anyhow::Result<()> {
     info!("Initialising window monitor");
-    let window_monitor = Arc::new(WindowMonitor::new()?);
+    let window_monitor = WindowMonitor::new()?;
 
     info!("Loading filter patterns from '{}' (blacklist) and '{}' (whitelist)",
         config.files.blacklist, config.files.whitelist);
-    let filter = Arc::new(Filter::new(
+    let filter = Filter::new(
         &config.files.blacklist,
         &config.files.whitelist,
-    )?);
+    )?;
 
     info!("Filter loaded: {} blacklist pattern(s), {} whitelist pattern(s)",
         filter.blacklist_len(), filter.whitelist_len());
 
-    let browser_manager = Arc::new(BrowserManager::new(
+    let browser_manager = BrowserManager::new(
         config.browser.executable.clone(),
         config.browser.process_name.clone(),
-    ));
+    );
 
     let mut sigterm = signal(SignalKind::terminate())?;
     let bg = BackgroundManager::new();
@@ -273,9 +278,6 @@ async fn run_daemon(config: &Config) -> anyhow::Result<()> {
     println!("Starting daemon mode...");
     info!("Daemon started");
 
-    // Track current background to avoid redundant feh calls.
-    #[derive(PartialEq)]
-    enum BgMode { Normal, Blocked, Break }
     let mut current_bg: Option<BgMode> = None;
 
     loop {
@@ -314,7 +316,7 @@ async fn run_daemon(config: &Config) -> anyhow::Result<()> {
                 if let Some((matched_title, matched_pattern)) = filter.find_blacklisted_title(&titles) {
                     warn!("Blacklist hit: title='{}' matched pattern='{}'",
                         matched_title, matched_pattern);
-                    browser_manager.kill_browser_processes()?;
+                    browser_manager.kill_browser_processes().await?;
 
                     let hard_locked = state.record_violation(
                         config.timeouts.grace_retries,
@@ -363,7 +365,7 @@ async fn run_daemon(config: &Config) -> anyhow::Result<()> {
                 config.timeouts.bathroom_break_minutes,
                 config.timeouts.bathroom_break_interval_hours);
             println!("Initiating bathroom break");
-            browser_manager.kill_browser_processes()?;
+            browser_manager.kill_browser_processes().await?;
             state.start_bathroom_break(
                 config.timeouts.bathroom_break_minutes,
                 config.timeouts.bathroom_break_interval_hours,

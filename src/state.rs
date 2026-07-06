@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AppState {
     pub blocked_until: Option<DateTime<Utc>>,
     pub next_bathroom_break: DateTime<Utc>,
@@ -16,10 +16,23 @@ pub struct AppState {
     pub violation_window_start: Option<DateTime<Utc>>,
 }
 
+impl Default for AppState {
+    fn default() -> Self {
+        AppState {
+            blocked_until: None,
+            next_bathroom_break: Utc::now() + chrono::Duration::hours(2),
+            in_bathroom_break: false,
+            bathroom_break_until: None,
+            violation_count: 0,
+            violation_window_start: None,
+        }
+    }
+}
+
 impl AppState {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         if !path.as_ref().exists() {
-            return Ok(AppState::default_with_next_break());
+            return Ok(AppState::default());
         }
 
         let content = fs::read_to_string(path)?;
@@ -44,7 +57,7 @@ impl AppState {
         }
     }
 
-    pub fn is_bathroom_break_time(&self, _interval_hours: u64) -> bool {
+    pub fn is_bathroom_break_time(&self) -> bool {
         if self.in_bathroom_break {
             if let Some(until) = self.bathroom_break_until {
                 return Utc::now() < until;
@@ -110,16 +123,6 @@ impl AppState {
         self.bathroom_break_until = None;
     }
 
-    fn default_with_next_break() -> Self {
-        AppState {
-            blocked_until: None,
-            next_bathroom_break: Utc::now() + chrono::Duration::hours(2),
-            in_bathroom_break: false,
-            bathroom_break_until: None,
-            violation_count: 0,
-            violation_window_start: None,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -236,7 +239,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(state.is_bathroom_break_time(3));
+        assert!(state.is_bathroom_break_time());
     }
 
     #[test]
@@ -247,7 +250,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(!state.is_bathroom_break_time(3));
+        assert!(!state.is_bathroom_break_time());
     }
 
     #[test]
@@ -258,7 +261,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(state.is_bathroom_break_time(3));
+        assert!(state.is_bathroom_break_time());
     }
 
     #[test]
@@ -269,7 +272,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(!state.is_bathroom_break_time(3));
+        assert!(!state.is_bathroom_break_time());
     }
 
     #[test]
@@ -311,8 +314,8 @@ mod tests {
     }
 
     #[test]
-    fn test_default_with_next_break() {
-        let state = AppState::default_with_next_break();
+    fn test_default_next_break_is_two_hours_out() {
+        let state = AppState::default();
 
         assert!(state.blocked_until.is_none());
         assert!(!state.in_bathroom_break);
@@ -322,7 +325,7 @@ mod tests {
         let time_diff = (state.next_bathroom_break - expected_next_break)
             .num_seconds()
             .abs();
-        assert!(time_diff < 2); // Allow 2 seconds difference
+        assert!(time_diff < 2);
     }
 
     #[test]

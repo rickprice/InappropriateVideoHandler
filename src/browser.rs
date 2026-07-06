@@ -3,6 +3,7 @@ use log::{debug, error, info};
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use std::process::{Child, Command};
+use tokio::time::{sleep, Duration};
 
 pub struct BrowserManager {
     executable: String,
@@ -24,7 +25,7 @@ impl BrowserManager {
         Ok(child)
     }
 
-    pub fn kill_browser_processes(&self) -> Result<()> {
+    pub async fn kill_browser_processes(&self) -> Result<()> {
         let pids = self.find_browser_pids()?;
 
         info!("kill_browser_processes: found {} pid(s) for '{}'",
@@ -41,7 +42,7 @@ impl BrowserManager {
             }
         }
 
-        std::thread::sleep(std::time::Duration::from_secs(2));
+        sleep(Duration::from_secs(2)).await;
 
         let remaining_pids = self.find_browser_pids()?;
         if !remaining_pids.is_empty() {
@@ -157,12 +158,12 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
+    #[tokio::test]
     #[serial]
-    fn test_kill_browser_processes_no_processes() {
+    async fn test_kill_browser_processes_no_processes() {
         let manager = make_manager("nonexistent-browser-12345", "nonexistent-browser-12345");
 
-        let result = manager.kill_browser_processes();
+        let result = manager.kill_browser_processes().await;
         assert!(result.is_ok());
     }
 
@@ -233,10 +234,10 @@ mod tests {
         assert_ne!(manager1.executable, manager2.executable);
     }
 
-    #[test]
+    #[tokio::test]
     #[serial]
     #[ignore]
-    fn test_start_browser_with_real_browser() {
+    async fn test_start_browser_with_real_browser() {
         let manager = BrowserManager::new(
             "google-chrome-stable".to_string(),
             "chrome".to_string(),
@@ -244,15 +245,15 @@ mod tests {
 
         let result = manager.start_browser("https://example.com");
         if result.is_ok() {
-            std::thread::sleep(std::time::Duration::from_secs(2));
-            let _ = manager.kill_browser_processes();
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            let _ = manager.kill_browser_processes().await;
         }
     }
 
-    #[test]
+    #[tokio::test]
     #[serial]
     #[ignore]
-    fn test_browser_lifecycle() {
+    async fn test_browser_lifecycle() {
         let manager = BrowserManager::new(
             "google-chrome-stable".to_string(),
             "chrome".to_string(),
@@ -263,12 +264,12 @@ mod tests {
             return;
         }
 
-        std::thread::sleep(std::time::Duration::from_secs(3));
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
         assert!(manager.has_running_processes());
 
-        let result = manager.kill_browser_processes();
+        let result = manager.kill_browser_processes().await;
         assert!(result.is_ok());
 
-        std::thread::sleep(std::time::Duration::from_secs(2));
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
     }
 }

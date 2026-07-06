@@ -36,27 +36,6 @@ impl WindowMonitor {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn get_active_window_title(&self) -> Result<String> {
-        debug!("get_active_window_title: querying input focus");
-        unsafe {
-            let root = XDefaultRootWindow(self.display);
-            let mut window: Window = 0;
-            let mut revert_to: i32 = 0;
-
-            XGetInputFocus(self.display, &mut window, &mut revert_to);
-
-            if window == 0 || window == root {
-                debug!("get_active_window_title: no focused window");
-                return Ok(String::new());
-            }
-
-            let title = self.get_window_title(window)?;
-            debug!("Active window title: '{}'", title);
-            Ok(title)
-        }
-    }
-
     pub fn get_browser_window_titles(&self, browser_pids: &[i32]) -> Result<Vec<String>> {
         debug!("get_browser_window_titles: checking against pids {:?}", browser_pids);
         unsafe {
@@ -82,7 +61,7 @@ impl WindowMonitor {
             debug!("XQueryTree returned {} child window(s)", nchildren);
 
             let child_windows = std::slice::from_raw_parts(children, nchildren as usize);
-            let mut titles = Vec::with_capacity(browser_pids.len());
+            let mut titles = Vec::new();
 
             for (i, &window) in child_windows.iter().enumerate() {
                 if let Some(pid) = self.get_window_pid(window) {
@@ -108,53 +87,6 @@ impl WindowMonitor {
             }
 
             info!("get_browser_window_titles: {} non-empty title(s) found", titles.len());
-
-            if !children.is_null() {
-                XFree(children as *mut _);
-            }
-
-            Ok(titles)
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn get_all_window_titles(&self) -> Result<Vec<String>> {
-        debug!("get_all_window_titles: querying window tree");
-        unsafe {
-            let root = XDefaultRootWindow(self.display);
-            let mut children: *mut Window = ptr::null_mut();
-            let mut nchildren: u32 = 0;
-            let mut parent: Window = 0;
-            let mut root_return: Window = 0;
-
-            let status = XQueryTree(
-                self.display,
-                root,
-                &mut root_return,
-                &mut parent,
-                &mut children,
-                &mut nchildren,
-            );
-
-            if status == 0 {
-                return Err(anyhow!("Failed to query window tree"));
-            }
-
-            debug!("XQueryTree returned {} child window(s)", nchildren);
-
-            let child_windows = std::slice::from_raw_parts(children, nchildren as usize);
-            let mut titles = Vec::with_capacity(child_windows.len());
-
-            for (i, &window) in child_windows.iter().enumerate() {
-                if let Ok(title) = self.get_window_title(window) {
-                    if !title.is_empty() {
-                        trace!("Window {}: '{}'", i, title);
-                        titles.push(title);
-                    }
-                }
-            }
-
-            info!("get_all_window_titles: {} non-empty title(s) found", titles.len());
 
             if !children.is_null() {
                 XFree(children as *mut _);
