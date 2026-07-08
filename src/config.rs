@@ -87,7 +87,7 @@ impl Default for Config {
                 check_frequency_seconds: 60,
             },
             timeouts: TimeoutConfig {
-                blacklist_timeout_minutes: 10,
+                blacklist_timeout_minutes: 1,
                 bathroom_break_minutes: 4,
                 bathroom_break_interval_hours: 2,
                 grace_retries: 3,
@@ -165,7 +165,7 @@ mod tests {
         assert_eq!(config.browser.url, "https://www.youtube.com");
         assert_eq!(config.browser.process_name, "chrome");
         assert_eq!(config.monitoring.check_frequency_seconds, 60);
-        assert_eq!(config.timeouts.blacklist_timeout_minutes, 10);
+        assert_eq!(config.timeouts.blacklist_timeout_minutes, 1);
         assert_eq!(config.timeouts.bathroom_break_minutes, 4);
         assert_eq!(config.timeouts.bathroom_break_interval_hours, 2);
         assert_eq!(

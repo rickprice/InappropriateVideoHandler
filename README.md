@@ -62,7 +62,7 @@ monitoring:
   check_frequency_seconds: 60          # How often the daemon checks window titles
 
 timeouts:
-  blacklist_timeout_minutes: 10        # How long the browser is blocked during a grace retry
+  blacklist_timeout_minutes: 1         # How long the browser is blocked during a grace retry
   bathroom_break_minutes: 4            # Duration of each scheduled break
   bathroom_break_interval_hours: 2     # How often breaks are enforced
   grace_retries: 3                     # Violations allowed before a hard lock is applied
@@ -91,7 +91,7 @@ files:
 | `browser.process_name` | Process name matched by `pgrep` to kill the browser | `chrome` |
 
 | `monitoring.check_frequency_seconds` | Seconds between each title check | `60` |
-| `timeouts.blacklist_timeout_minutes` | Minutes the browser stays blocked during a grace retry | `10` |
+| `timeouts.blacklist_timeout_minutes` | Minutes the browser stays blocked during a grace retry | `1` |
 | `timeouts.bathroom_break_minutes` | Duration of each break in minutes | `4` |
 | `timeouts.bathroom_break_interval_hours` | Hours between scheduled breaks | `2` |
 | `timeouts.grace_retries` | Violations allowed within the reset window before a hard lock is applied | `3` |
