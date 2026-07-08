@@ -77,7 +77,9 @@ backgrounds:
 files:
   blacklist: "~/.config/inappropriate-video-handler/BlackList.txt"
   whitelist: "~/.config/inappropriate-video-handler/WhiteList.txt"
-  state_file: "/tmp/ivh_state.json"    # Persists block/break state across reboots
+  state_file: "~/.cache/inappropriate-video-handler/state.json"  # Persists block/break state across reboots
+  log_file: "~/.cache/inappropriate-video-handler/ivh.log"       # Optional; uses XDG default if omitted
+  titles_file: "~/.cache/inappropriate-video-handler/window-titles.txt"  # Optional; cumulative title log
 ```
 
 ### Configuration reference
@@ -95,12 +97,14 @@ files:
 | `timeouts.grace_retries` | Violations allowed within the reset window before a hard lock is applied | `3` |
 | `timeouts.hard_lock_minutes` | Minutes the browser stays hard-locked once grace retries are exhausted | `40` |
 | `timeouts.retry_reset_minutes` | Minutes of quiet time (not blocked, no new violations) needed to reset the violation count | `20` |
-| `backgrounds.normal` | Wallpaper path during normal operation | — |
-| `backgrounds.blocked` | Wallpaper path while blocked | — |
-| `backgrounds.bathroom_break` | Wallpaper path during a break | — |
-| `files.blacklist` | Path to blacklist pattern file | — |
-| `files.whitelist` | Path to whitelist pattern file | — |
-| `files.state_file` | Path to persistent state JSON file | `/tmp/ivh_state.json` |
+| `backgrounds.normal` | Wallpaper path during normal operation | `$XDG_CONFIG_HOME/inappropriate-video-handler/wallpaper/normal.jpg` |
+| `backgrounds.blocked` | Wallpaper path while blocked | `$XDG_CONFIG_HOME/inappropriate-video-handler/wallpaper/blocked.jpg` |
+| `backgrounds.bathroom_break` | Wallpaper path during a break | `$XDG_CONFIG_HOME/inappropriate-video-handler/wallpaper/bathroom.jpg` |
+| `files.blacklist` | Path to blacklist pattern file | `$XDG_CONFIG_HOME/inappropriate-video-handler/BlackList.txt` |
+| `files.whitelist` | Path to whitelist pattern file | `$XDG_CONFIG_HOME/inappropriate-video-handler/WhiteList.txt` |
+| `files.state_file` | Path to persistent state JSON file | `$XDG_CACHE_HOME/inappropriate-video-handler/state.json` |
+| `files.log_file` | Path to log file | `$XDG_CACHE_HOME/inappropriate-video-handler/ivh.log` |
+| `files.titles_file` | Cumulative log of all seen window titles (useful for building pattern lists) | `$XDG_CACHE_HOME/inappropriate-video-handler/window-titles.txt` |
 
 ---
 
@@ -153,15 +157,52 @@ Log output goes to **stderr**. Use `--log-level debug` to verify which window ti
 
 ---
 
+## State Machine
+
+The daemon tracks one of four states at any given time.
+
+### States
+
+| State | Condition | Browser | Wallpaper |
+|-------|-----------|---------|-----------|
+| **Normal** | No active block or break | Allowed to run | `backgrounds.normal` |
+| **Grace Blocked** | Blacklist match; `violation_count` ≤ `grace_retries` | Killed; blocked for `blacklist_timeout_minutes` | `backgrounds.blocked` |
+| **Hard Locked** | `violation_count` exceeds `grace_retries` | Killed; blocked for `hard_lock_minutes` | `backgrounds.blocked` |
+| **Bathroom Break** | Break interval elapsed (only triggered when not already blocked) | Killed; blocked for `bathroom_break_minutes` | `backgrounds.bathroom_break` |
+
+### Transitions
+
+| From | Event | To |
+|------|-------|----|
+| Normal | Blacklist match (count ≤ `grace_retries`) | Grace Blocked |
+| Normal | Blacklist match (count already > `grace_retries`) | Hard Locked |
+| Normal | Break interval (`bathroom_break_interval_hours`) elapsed | Bathroom Break |
+| Grace Blocked | Another blacklist match that pushes count > `grace_retries` | Hard Locked |
+| Grace Blocked | Block timer expires AND `retry_reset_minutes` of quiet time | Normal (count resets) |
+| Hard Locked | Another blacklist match while still locked | Hard Locked (timer re-extended) |
+| Hard Locked | Block timer expires AND `retry_reset_minutes` of quiet time | Normal (count resets) |
+| Bathroom Break | Break duration (`bathroom_break_minutes`) elapsed | Normal |
+
+### Violation counter
+
+The violation count drives the grace/hard-lock distinction. It only resets after `retry_reset_minutes` of unblocked, violation-free time, so waiting out part of a hard lock and re-offending does not downgrade the block back to a short grace window.
+
+| Count | Block applied |
+|-------|--------------|
+| 1 … `grace_retries` | Short block (`blacklist_timeout_minutes`) |
+| > `grace_retries` | Hard lock (`hard_lock_minutes`), re-extended on each additional violation |
+| After `retry_reset_minutes` quiet (unblocked) | Counter resets to 0 |
+
+---
+
 ## How It Works
 
-1. The daemon starts, loads config, filter patterns, and persisted state, then sets the desktop wallpaper to reflect the current state (normal, blocked, or bathroom break).
-2. Every `check_frequency_seconds` it finds all Chrome process IDs with `pgrep`.
+1. The daemon starts, loads config, filter patterns, and persisted state, then sets the desktop wallpaper to reflect the current state (Normal, Blocked, or Bathroom Break).
+2. Every `check_frequency_seconds` it finds all browser process IDs with `pgrep`.
 3. It queries the X11 window tree for windows belonging to those PIDs and collects their titles.
-4. If `remote_debugging_port` is set, it also fetches all tab titles from Chrome's debug API.
-5. Each title is checked against the blacklist. If it matches and is not overridden by the whitelist, the browser is killed and a violation is recorded: within `grace_retries`, a short `blacklist_timeout_minutes` block is applied; beyond that, a `hard_lock_minutes` hard lock is applied (and re-extended on further violations while it's still active) until enough quiet time (`retry_reset_minutes`) passes while unblocked.
-6. Separately, if the scheduled break interval has elapsed, the browser is killed and a break is started regardless of what was open.
-7. The desktop wallpaper is updated to reflect the current state.
+4. Each title is checked against the blacklist. If it matches and is not overridden by the whitelist, the browser is killed and a violation is recorded: within `grace_retries`, a short `blacklist_timeout_minutes` block is applied; beyond that, a `hard_lock_minutes` hard lock is applied (and re-extended on further violations while it's still active) until enough quiet time (`retry_reset_minutes`) passes while unblocked.
+5. Separately, if the scheduled break interval has elapsed, the browser is killed and a break is started (provided no block is already active).
+6. The desktop wallpaper is updated to reflect the current state.
 
 ---
 
