@@ -210,12 +210,13 @@ The violation count drives the grace/hard-lock distinction. It only resets after
 
 State is stored as JSON at `files.state_file`. It records:
 
-- When the current block expires
+- The current phase — `Normal`, `GraceBlocked { until }`, `HardLocked { until }`, or `BathroomBreak { until }` — as a single tagged field, so a block and an active break can never be represented at the same time
 - The current violation count and when the last violation happened (for grace-retry tracking)
 - When the next break is due
-- Whether a break is currently active and when it ends
 
 This means a block or active break will still be in effect if the machine reboots or the daemon restarts.
+
+The daemon only rewrites the file when the phase, violation count, or violation window actually changes, and skips re-reading it on ticks where its mtime hasn't moved since the last check — so an idle daemon does not touch the file every `check_frequency_seconds`. Any external write (e.g. from `--start-browser`) still changes the mtime and is picked up on the next tick.
 
 ---
 

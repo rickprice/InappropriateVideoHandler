@@ -19,7 +19,7 @@ use background::BackgroundManager;
 use browser::BrowserManager;
 use config::Config;
 use filter::Filter;
-use state::AppState;
+use state::{AppPhase, AppState};
 use window_monitor::WindowMonitor;
 
 fn init_logging(log_level: &str, log_file: &str) -> anyhow::Result<()> {
@@ -169,12 +169,12 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
     let mut state = AppState::load(&config.files.state_file)?;
 
     info!("State loaded: blocked={} in_bathroom_break={} violation_count={}",
-        state.is_blocked(), state.in_bathroom_break, state.violation_count);
+        state.is_blocked(), state.is_in_bathroom_break(), state.violation_count);
     debug!("  next_bathroom_break = {}", state.next_bathroom_break);
-    if let Some(until) = state.blocked_until {
+    if let Some(until) = state.blocked_until() {
         debug!("  blocked_until = {}", until);
     }
-    if let Some(until) = state.bathroom_break_until {
+    if let Some(until) = state.bathroom_break_until() {
         debug!("  bathroom_break_until = {}", until);
     }
 
@@ -186,14 +186,14 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
 
     if state.is_blocked() {
         println!("Browser is currently blocked");
-        info!("Browser blocked until {:?}", state.blocked_until);
+        info!("Browser blocked until {:?}", state.blocked_until());
         browser_manager.kill_browser_processes().await?;
         bg.set_blocked_background(&config.backgrounds.blocked)?;
         return Ok(());
     }
 
     if state.is_bathroom_break_time() {
-        if !state.in_bathroom_break {
+        if !matches!(state.phase, AppPhase::BathroomBreak { .. }) {
             info!("Starting bathroom break: duration={}m interval={}h",
                 config.timeouts.bathroom_break_minutes,
                 config.timeouts.bathroom_break_interval_hours);
@@ -205,19 +205,17 @@ async fn handle_start_browser(config: &Config) -> anyhow::Result<()> {
             state.save(&config.files.state_file)?;
         }
 
-        if state.in_bathroom_break {
-            if let Some(until) = state.bathroom_break_until {
-                if Utc::now() < until {
-                    println!("It's bathroom break time");
-                    info!("Bathroom break active until {}", until);
-                    browser_manager.kill_browser_processes().await?;
-                    bg.set_bathroom_break_background(&config.backgrounds.bathroom_break)?;
-                    return Ok(());
-                } else {
-                    info!("Bathroom break expired, ending break");
-                    state.end_bathroom_break();
-                    state.save(&config.files.state_file)?;
-                }
+        if let AppPhase::BathroomBreak { until } = state.phase {
+            if Utc::now() < until {
+                println!("It's bathroom break time");
+                info!("Bathroom break active until {}", until);
+                browser_manager.kill_browser_processes().await?;
+                bg.set_bathroom_break_background(&config.backgrounds.bathroom_break)?;
+                return Ok(());
+            } else {
+                info!("Bathroom break expired, ending break");
+                state.end_bathroom_break();
+                state.save(&config.files.state_file)?;
             }
         }
     }
@@ -279,31 +277,37 @@ async fn run_daemon(config: &Config) -> anyhow::Result<()> {
     info!("Daemon started");
 
     let mut current_bg: Option<BgMode> = None;
+    // Cache of the last state we read, keyed by the state file's mtime, so an
+    // unchanged file doesn't get re-read and re-parsed on every tick. Anything
+    // external (e.g. a `--start-browser` invocation) that writes the file
+    // changes its mtime and is picked up on the next tick regardless.
+    let mut cached: Option<(AppState, std::time::SystemTime)> = None;
 
     loop {
         debug!("--- daemon tick ---");
-        let mut state = AppState::load(&config.files.state_file)?;
+        let mut state = match AppState::load_if_changed(&config.files.state_file, cached.map(|(_, m)| m))? {
+            Some((state, _)) => state,
+            None => cached.expect("cache is populated whenever load_if_changed can return None").0,
+        };
         let mut state_dirty = false;
 
         debug!("State: blocked={} in_bathroom_break={} violation_count={} next_break={}",
-            state.is_blocked(), state.in_bathroom_break, state.violation_count,
+            state.is_blocked(), state.is_in_bathroom_break(), state.violation_count,
             state.next_bathroom_break);
 
         // End any expired bathroom break first so the rest of the loop sees clean state.
-        if state.in_bathroom_break {
-            if let Some(until) = state.bathroom_break_until {
-                if Utc::now() >= until {
-                    info!("Bathroom break expired at {}", until);
-                    println!("Bathroom break ended");
-                    state.end_bathroom_break();
-                    state_dirty = true;
-                }
+        if let AppPhase::BathroomBreak { until } = state.phase {
+            if Utc::now() >= until {
+                info!("Bathroom break expired at {}", until);
+                println!("Bathroom break ended");
+                state.end_bathroom_break();
+                state_dirty = true;
             }
         }
 
         // Check window titles for violations — skipped during a bathroom break since
         // the browser should not be running and the user should be away from the screen.
-        if !state.in_bathroom_break {
+        if !state.is_in_bathroom_break() {
             let browser_pids = browser_manager.get_pids();
             if let Ok(titles) = window_monitor.get_browser_window_titles(&browser_pids) {
                 if !titles.is_empty() {
@@ -360,7 +364,7 @@ async fn run_daemon(config: &Config) -> anyhow::Result<()> {
 
         // Initiate a scheduled bathroom break — only when the browser is not already
         // in a cooldown block, to keep the two states distinct.
-        if !state.is_blocked() && !state.in_bathroom_break && Utc::now() >= state.next_bathroom_break {
+        if !state.is_blocked() && !state.is_in_bathroom_break() && Utc::now() >= state.next_bathroom_break {
             info!("Bathroom break: duration={}m next_interval={}h",
                 config.timeouts.bathroom_break_minutes,
                 config.timeouts.bathroom_break_interval_hours);
@@ -377,8 +381,15 @@ async fn run_daemon(config: &Config) -> anyhow::Result<()> {
             state.save(&config.files.state_file)?;
         }
 
+        // Remember what's now on disk (whichever tick wrote it) so an unchanged
+        // file can be skipped on the next iteration instead of re-read.
+        cached = fs::metadata(&config.files.state_file)
+            .and_then(|m| m.modified())
+            .ok()
+            .map(|mtime| (state, mtime));
+
         // Sync background to current state; only call feh when the mode actually changes.
-        let new_bg = if state.in_bathroom_break {
+        let new_bg = if state.is_in_bathroom_break() {
             BgMode::Break
         } else if state.is_blocked() {
             BgMode::Blocked

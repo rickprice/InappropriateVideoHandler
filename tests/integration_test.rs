@@ -94,7 +94,7 @@ fn test_state_persistence_workflow() {
 
     let mut state = AppState::default();
     assert!(!state.is_blocked());
-    assert!(!state.in_bathroom_break);
+    assert!(!state.is_in_bathroom_break());
 
     state.block_browser(10);
     assert!(state.is_blocked());
@@ -105,11 +105,11 @@ fn test_state_persistence_workflow() {
 
     let mut state = loaded_state;
     state.start_bathroom_break(5, 2);
-    assert!(state.in_bathroom_break);
+    assert!(state.is_in_bathroom_break());
     state.save(&state_file).unwrap();
 
     let final_state = AppState::load(&state_file).unwrap();
-    assert!(final_state.in_bathroom_break);
+    assert!(final_state.is_in_bathroom_break());
 }
 
 #[test]
@@ -230,12 +230,12 @@ async fn test_complete_workflow_simulation() {
 
     let mut state = loaded_state;
     state.start_bathroom_break(5, 2);
-    assert!(state.in_bathroom_break);
+    assert!(state.is_in_bathroom_break());
 
     state.save(&state_file).unwrap();
 
     let final_state = AppState::load(&state_file).unwrap();
-    assert!(final_state.in_bathroom_break);
+    assert!(final_state.is_in_bathroom_break());
 }
 
 #[test]
@@ -327,7 +327,7 @@ fn test_time_calculations() {
     let start_time = Utc::now();
     state.block_browser(5);
 
-    if let Some(blocked_until) = state.blocked_until {
+    if let Some(blocked_until) = state.blocked_until() {
         let duration = blocked_until - start_time;
         assert!(duration.num_minutes() >= 4 && duration.num_minutes() <= 6);
     } else {

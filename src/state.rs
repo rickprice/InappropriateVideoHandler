@@ -4,12 +4,23 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
-#[derive(Debug, Serialize, Deserialize)]
+/// The daemon's current phase. Exactly one variant is active at a time, so
+/// "blocked" and "on a bathroom break" can no longer disagree across call
+/// sites the way independent `Option`/`bool` fields could.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+pub enum AppPhase {
+    #[default]
+    Normal,
+    GraceBlocked { until: DateTime<Utc> },
+    HardLocked { until: DateTime<Utc> },
+    BathroomBreak { until: DateTime<Utc> },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct AppState {
-    pub blocked_until: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub phase: AppPhase,
     pub next_bathroom_break: DateTime<Utc>,
-    pub in_bathroom_break: bool,
-    pub bathroom_break_until: Option<DateTime<Utc>>,
     #[serde(default)]
     pub violation_count: u32,
     #[serde(default)]
@@ -19,10 +30,8 @@ pub struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         AppState {
-            blocked_until: None,
+            phase: AppPhase::Normal,
             next_bathroom_break: Utc::now() + chrono::Duration::hours(2),
-            in_bathroom_break: false,
-            bathroom_break_until: None,
             violation_count: 0,
             violation_window_start: None,
         }
@@ -40,6 +49,35 @@ impl AppState {
         Ok(state)
     }
 
+    /// Loads only if the state file's mtime differs from `last_modified`,
+    /// to avoid a read+parse on every daemon tick when nothing changed
+    /// since the previous one. Returns `None` when the file is unchanged
+    /// (or still absent) and the cached state can keep being used.
+    pub fn load_if_changed<P: AsRef<Path>>(
+        path: P,
+        last_modified: Option<std::time::SystemTime>,
+    ) -> Result<Option<(Self, std::time::SystemTime)>> {
+        let path = path.as_ref();
+        let mtime = match fs::metadata(path).and_then(|m| m.modified()) {
+            Ok(mtime) => mtime,
+            Err(_) => {
+                return if last_modified.is_none() {
+                    Ok(Some((AppState::default(), std::time::SystemTime::UNIX_EPOCH)))
+                } else {
+                    Ok(None)
+                };
+            }
+        };
+
+        if Some(mtime) == last_modified {
+            return Ok(None);
+        }
+
+        let content = fs::read_to_string(path)?;
+        let state: AppState = serde_json::from_str(&content)?;
+        Ok(Some((state, mtime)))
+    }
+
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         if let Some(parent) = path.as_ref().parent() {
             fs::create_dir_all(parent)?;
@@ -50,24 +88,41 @@ impl AppState {
     }
 
     pub fn is_blocked(&self) -> bool {
-        if let Some(blocked_until) = self.blocked_until {
-            Utc::now() < blocked_until
-        } else {
-            false
+        match self.phase {
+            AppPhase::GraceBlocked { until } | AppPhase::HardLocked { until } => Utc::now() < until,
+            _ => false,
         }
     }
 
+    pub fn is_in_bathroom_break(&self) -> bool {
+        matches!(self.phase, AppPhase::BathroomBreak { until } if Utc::now() < until)
+    }
+
     pub fn is_bathroom_break_time(&self) -> bool {
-        if self.in_bathroom_break {
-            if let Some(until) = self.bathroom_break_until {
-                return Utc::now() < until;
-            }
+        if let AppPhase::BathroomBreak { until } = self.phase {
+            return Utc::now() < until;
         }
         Utc::now() >= self.next_bathroom_break
     }
 
+    pub fn blocked_until(&self) -> Option<DateTime<Utc>> {
+        match self.phase {
+            AppPhase::GraceBlocked { until } | AppPhase::HardLocked { until } => Some(until),
+            _ => None,
+        }
+    }
+
+    pub fn bathroom_break_until(&self) -> Option<DateTime<Utc>> {
+        match self.phase {
+            AppPhase::BathroomBreak { until } => Some(until),
+            _ => None,
+        }
+    }
+
     pub fn block_browser(&mut self, timeout_minutes: u64) {
-        self.blocked_until = Some(Utc::now() + chrono::Duration::minutes(timeout_minutes as i64));
+        self.phase = AppPhase::GraceBlocked {
+            until: Utc::now() + chrono::Duration::minutes(timeout_minutes as i64),
+        };
     }
 
     /// Records a blacklist violation and applies grace-retry logic.
@@ -103,7 +158,9 @@ impl AppState {
         self.violation_count += 1;
 
         if self.violation_count > grace_retries {
-            self.block_browser(hard_lock_minutes);
+            self.phase = AppPhase::HardLocked {
+                until: now + chrono::Duration::minutes(hard_lock_minutes as i64),
+            };
             true
         } else {
             self.block_browser(grace_timeout_minutes);
@@ -112,17 +169,15 @@ impl AppState {
     }
 
     pub fn start_bathroom_break(&mut self, duration_minutes: u64, interval_hours: u64) {
-        self.in_bathroom_break = true;
-        self.bathroom_break_until =
-            Some(Utc::now() + chrono::Duration::minutes(duration_minutes as i64));
+        self.phase = AppPhase::BathroomBreak {
+            until: Utc::now() + chrono::Duration::minutes(duration_minutes as i64),
+        };
         self.next_bathroom_break = Utc::now() + chrono::Duration::hours(interval_hours as i64);
     }
 
     pub fn end_bathroom_break(&mut self) {
-        self.in_bathroom_break = false;
-        self.bathroom_break_until = None;
+        self.phase = AppPhase::Normal;
     }
-
 }
 
 #[cfg(test)]
@@ -135,18 +190,18 @@ mod tests {
     fn test_app_state_default() {
         let state = AppState::default();
 
-        assert!(state.blocked_until.is_none());
-        assert!(!state.in_bathroom_break);
-        assert!(state.bathroom_break_until.is_none());
+        assert_eq!(state.phase, AppPhase::Normal);
+        assert!(!state.is_blocked());
+        assert!(!state.is_in_bathroom_break());
     }
 
     #[test]
     fn test_app_state_load_nonexistent_file() {
         let state = AppState::load("/nonexistent/path/state.json").unwrap();
 
-        assert!(state.blocked_until.is_none());
-        assert!(!state.in_bathroom_break);
-        assert!(state.bathroom_break_until.is_none());
+        assert_eq!(state.phase, AppPhase::Normal);
+        assert!(!state.is_blocked());
+        assert!(!state.is_in_bathroom_break());
         assert!(state.next_bathroom_break > Utc::now());
     }
 
@@ -156,9 +211,9 @@ mod tests {
         let temp_path = temp_file.path().to_path_buf();
 
         let original_state = AppState {
-            blocked_until: Some(Utc::now() + chrono::Duration::minutes(10)),
-            in_bathroom_break: true,
-            bathroom_break_until: Some(Utc::now() + chrono::Duration::minutes(5)),
+            phase: AppPhase::BathroomBreak {
+                until: Utc::now() + chrono::Duration::minutes(5),
+            },
             ..Default::default()
         };
 
@@ -166,15 +221,7 @@ mod tests {
 
         let loaded_state = AppState::load(&temp_path).unwrap();
 
-        assert_eq!(original_state.blocked_until, loaded_state.blocked_until);
-        assert_eq!(
-            original_state.in_bathroom_break,
-            loaded_state.in_bathroom_break
-        );
-        assert_eq!(
-            original_state.bathroom_break_until,
-            loaded_state.bathroom_break_until
-        );
+        assert_eq!(original_state.phase, loaded_state.phase);
         assert_eq!(
             original_state.next_bathroom_break,
             loaded_state.next_bathroom_break
@@ -191,6 +238,40 @@ mod tests {
     }
 
     #[test]
+    fn test_load_if_changed_skips_unchanged_file() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let temp_path = temp_file.path().to_path_buf();
+        AppState::default().save(&temp_path).unwrap();
+
+        let (_state, mtime) = AppState::load_if_changed(&temp_path, None)
+            .unwrap()
+            .expect("first load should return Some");
+
+        let second = AppState::load_if_changed(&temp_path, Some(mtime)).unwrap();
+        assert!(second.is_none(), "unchanged file should not be reloaded");
+    }
+
+    #[test]
+    fn test_load_if_changed_reloads_after_write() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let temp_path = temp_file.path().to_path_buf();
+        AppState::default().save(&temp_path).unwrap();
+
+        let (_state, mtime) = AppState::load_if_changed(&temp_path, None)
+            .unwrap()
+            .expect("first load should return Some");
+
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let mut state = AppState::default();
+        state.block_browser(5);
+        state.save(&temp_path).unwrap();
+
+        let reloaded = AppState::load_if_changed(&temp_path, Some(mtime)).unwrap();
+        assert!(reloaded.is_some(), "changed file should be reloaded");
+        assert!(reloaded.unwrap().0.is_blocked());
+    }
+
+    #[test]
     fn test_is_blocked_when_not_blocked() {
         let state = AppState::default();
         assert!(!state.is_blocked());
@@ -199,7 +280,9 @@ mod tests {
     #[test]
     fn test_is_blocked_when_blocked_future() {
         let state = AppState {
-            blocked_until: Some(Utc::now() + chrono::Duration::minutes(10)),
+            phase: AppPhase::GraceBlocked {
+                until: Utc::now() + chrono::Duration::minutes(10),
+            },
             ..Default::default()
         };
         assert!(state.is_blocked());
@@ -208,7 +291,9 @@ mod tests {
     #[test]
     fn test_is_blocked_when_blocked_past() {
         let state = AppState {
-            blocked_until: Some(Utc::now() - chrono::Duration::minutes(10)),
+            phase: AppPhase::GraceBlocked {
+                until: Utc::now() - chrono::Duration::minutes(10),
+            },
             ..Default::default()
         };
         assert!(!state.is_blocked());
@@ -222,7 +307,7 @@ mod tests {
         state.block_browser(15);
         assert!(state.is_blocked());
 
-        if let Some(blocked_until) = state.blocked_until {
+        if let Some(blocked_until) = state.blocked_until() {
             let expected_time = Utc::now() + chrono::Duration::minutes(15);
             let time_diff = (blocked_until - expected_time).num_seconds().abs();
             assert!(time_diff < 2); // Allow 2 seconds difference for test execution time
@@ -235,7 +320,7 @@ mod tests {
     fn test_is_bathroom_break_time_not_in_break() {
         let state = AppState {
             next_bathroom_break: Utc::now() - chrono::Duration::minutes(1), // Past time
-            in_bathroom_break: false,
+            phase: AppPhase::Normal,
             ..Default::default()
         };
 
@@ -246,7 +331,7 @@ mod tests {
     fn test_is_bathroom_break_time_future() {
         let state = AppState {
             next_bathroom_break: Utc::now() + chrono::Duration::minutes(10), // Future time
-            in_bathroom_break: false,
+            phase: AppPhase::Normal,
             ..Default::default()
         };
 
@@ -256,8 +341,9 @@ mod tests {
     #[test]
     fn test_is_bathroom_break_time_currently_in_break() {
         let state = AppState {
-            in_bathroom_break: true,
-            bathroom_break_until: Some(Utc::now() + chrono::Duration::minutes(5)),
+            phase: AppPhase::BathroomBreak {
+                until: Utc::now() + chrono::Duration::minutes(5),
+            },
             ..Default::default()
         };
 
@@ -267,8 +353,9 @@ mod tests {
     #[test]
     fn test_is_bathroom_break_time_break_expired() {
         let state = AppState {
-            in_bathroom_break: true,
-            bathroom_break_until: Some(Utc::now() - chrono::Duration::minutes(5)),
+            phase: AppPhase::BathroomBreak {
+                until: Utc::now() - chrono::Duration::minutes(5),
+            },
             ..Default::default()
         };
 
@@ -278,15 +365,15 @@ mod tests {
     #[test]
     fn test_start_bathroom_break() {
         let mut state = AppState::default();
-        assert!(!state.in_bathroom_break);
-        assert!(state.bathroom_break_until.is_none());
+        assert!(!state.is_in_bathroom_break());
+        assert!(state.bathroom_break_until().is_none());
 
         state.start_bathroom_break(10, 3);
 
-        assert!(state.in_bathroom_break);
-        assert!(state.bathroom_break_until.is_some());
+        assert!(state.is_in_bathroom_break());
+        assert!(state.bathroom_break_until().is_some());
 
-        if let Some(break_until) = state.bathroom_break_until {
+        if let Some(break_until) = state.bathroom_break_until() {
             let expected_time = Utc::now() + chrono::Duration::minutes(10);
             let time_diff = (break_until - expected_time).num_seconds().abs();
             assert!(time_diff < 2); // Allow 2 seconds difference
@@ -302,24 +389,23 @@ mod tests {
     #[test]
     fn test_end_bathroom_break() {
         let mut state = AppState {
-            in_bathroom_break: true,
-            bathroom_break_until: Some(Utc::now() + chrono::Duration::minutes(5)),
+            phase: AppPhase::BathroomBreak {
+                until: Utc::now() + chrono::Duration::minutes(5),
+            },
             ..Default::default()
         };
 
         state.end_bathroom_break();
 
-        assert!(!state.in_bathroom_break);
-        assert!(state.bathroom_break_until.is_none());
+        assert!(!state.is_in_bathroom_break());
+        assert_eq!(state.phase, AppPhase::Normal);
     }
 
     #[test]
     fn test_default_next_break_is_two_hours_out() {
         let state = AppState::default();
 
-        assert!(state.blocked_until.is_none());
-        assert!(!state.in_bathroom_break);
-        assert!(state.bathroom_break_until.is_none());
+        assert_eq!(state.phase, AppPhase::Normal);
 
         let expected_next_break = Utc::now() + chrono::Duration::hours(2);
         let time_diff = (state.next_bathroom_break - expected_next_break)
@@ -351,8 +437,9 @@ mod tests {
         assert!(state.record_violation(2, 20, 10, 40));
         assert!(state.is_blocked());
         assert_eq!(state.violation_count, 3);
+        assert!(matches!(state.phase, AppPhase::HardLocked { .. }));
 
-        let blocked_until = state.blocked_until.unwrap();
+        let blocked_until = state.blocked_until().unwrap();
         let expected = Utc::now() + chrono::Duration::minutes(40);
         assert!((blocked_until - expected).num_seconds().abs() < 2);
     }
@@ -364,12 +451,12 @@ mod tests {
         state.record_violation(2, 20, 10, 40);
         state.record_violation(2, 20, 10, 40);
         state.record_violation(2, 20, 10, 40); // triggers hard lock
-        let first_blocked_until = state.blocked_until.unwrap();
+        let first_blocked_until = state.blocked_until().unwrap();
 
         // A further violation while still hard-locked should re-apply (extend)
         // the lock rather than resetting to a fresh grace window.
         assert!(state.record_violation(2, 20, 10, 40));
-        assert!(state.blocked_until.unwrap() >= first_blocked_until);
+        assert!(state.blocked_until().unwrap() >= first_blocked_until);
         assert_eq!(state.violation_count, 4);
     }
 
@@ -382,7 +469,9 @@ mod tests {
         assert_eq!(state.violation_count, 2);
 
         // Simulate the grace block having expired and enough quiet time passing
-        state.blocked_until = Some(Utc::now() - chrono::Duration::minutes(1));
+        state.phase = AppPhase::GraceBlocked {
+            until: Utc::now() - chrono::Duration::minutes(1),
+        };
         state.violation_window_start = Some(Utc::now() - chrono::Duration::minutes(25));
 
         // Should be treated as a fresh grace window, not a hard lock
@@ -413,11 +502,11 @@ mod tests {
 
         // First block
         state.block_browser(5);
-        let first_block = state.blocked_until.unwrap();
+        let first_block = state.blocked_until().unwrap();
 
         // Second block (should overwrite)
         state.block_browser(15);
-        let second_block = state.blocked_until.unwrap();
+        let second_block = state.blocked_until().unwrap();
 
         assert!(second_block > first_block);
     }
@@ -428,17 +517,17 @@ mod tests {
 
         // Start break
         state.start_bathroom_break(10, 3);
-        assert!(state.in_bathroom_break);
-        assert!(state.bathroom_break_until.is_some());
+        assert!(state.is_in_bathroom_break());
+        assert!(state.bathroom_break_until().is_some());
 
         // End break
         state.end_bathroom_break();
-        assert!(!state.in_bathroom_break);
-        assert!(state.bathroom_break_until.is_none());
+        assert!(!state.is_in_bathroom_break());
+        assert!(state.bathroom_break_until().is_none());
 
         // Start another break
         state.start_bathroom_break(5, 2);
-        assert!(state.in_bathroom_break);
-        assert!(state.bathroom_break_until.is_some());
+        assert!(state.is_in_bathroom_break());
+        assert!(state.bathroom_break_until().is_some());
     }
 }
