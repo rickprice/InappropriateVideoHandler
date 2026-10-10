@@ -3,7 +3,7 @@ use log::{debug, error, info};
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use std::process::{Child, Command};
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 pub struct BrowserManager {
     executable: String,
@@ -28,8 +28,11 @@ impl BrowserManager {
     pub async fn kill_browser_processes(&self) -> Result<()> {
         let pids = self.find_browser_pids()?;
 
-        info!("kill_browser_processes: found {} pid(s) for '{}'",
-            pids.len(), self.process_name);
+        info!(
+            "kill_browser_processes: found {} pid(s) for '{}'",
+            pids.len(),
+            self.process_name
+        );
         debug!("PIDs to SIGTERM: {:?}", pids);
 
         for pid in pids {
@@ -46,7 +49,10 @@ impl BrowserManager {
 
         let remaining_pids = self.find_browser_pids()?;
         if !remaining_pids.is_empty() {
-            info!("{} pid(s) still running after SIGTERM, sending SIGKILL", remaining_pids.len());
+            info!(
+                "{} pid(s) still running after SIGTERM, sending SIGKILL",
+                remaining_pids.len()
+            );
             debug!("PIDs to SIGKILL: {:?}", remaining_pids);
         }
 
@@ -113,10 +119,7 @@ mod tests {
 
     #[test]
     fn test_browser_manager_new() {
-        let manager = BrowserManager::new(
-            "google-chrome-stable".to_string(),
-            "chrome".to_string(),
-        );
+        let manager = BrowserManager::new("google-chrome-stable".to_string(), "chrome".to_string());
 
         assert_eq!(manager.executable, "google-chrome-stable");
         assert_eq!(manager.process_name, "chrome");
@@ -152,7 +155,10 @@ mod tests {
     #[test]
     #[serial]
     fn test_start_browser_invalid_executable() {
-        let manager = make_manager("nonexistent-browser-executable-12345", "nonexistent-process");
+        let manager = make_manager(
+            "nonexistent-browser-executable-12345",
+            "nonexistent-process",
+        );
 
         let result = manager.start_browser("https://example.com");
         assert!(result.is_err());
@@ -208,11 +214,7 @@ mod tests {
     #[test]
     #[serial]
     fn test_process_name_matching() {
-        let test_cases = vec![
-            ("sh", "sh"),
-            ("init", "init"),
-            ("kernel", "kernel"),
-        ];
+        let test_cases = vec![("sh", "sh"), ("init", "init"), ("kernel", "kernel")];
 
         for (executable, process_name) in test_cases {
             let manager = BrowserManager::new(executable.to_string(), process_name.to_string());
@@ -223,10 +225,8 @@ mod tests {
 
     #[test]
     fn test_browser_manager_clone_behavior() {
-        let manager1 = BrowserManager::new(
-            "google-chrome-stable".to_string(),
-            "chrome".to_string(),
-        );
+        let manager1 =
+            BrowserManager::new("google-chrome-stable".to_string(), "chrome".to_string());
         let manager2 = BrowserManager::new("chromium".to_string(), "chromium".to_string());
 
         assert_eq!(manager1.executable, "google-chrome-stable");
@@ -238,10 +238,7 @@ mod tests {
     #[serial]
     #[ignore]
     async fn test_start_browser_with_real_browser() {
-        let manager = BrowserManager::new(
-            "google-chrome-stable".to_string(),
-            "chrome".to_string(),
-        );
+        let manager = BrowserManager::new("google-chrome-stable".to_string(), "chrome".to_string());
 
         let result = manager.start_browser("https://example.com");
         if result.is_ok() {
@@ -254,10 +251,7 @@ mod tests {
     #[serial]
     #[ignore]
     async fn test_browser_lifecycle() {
-        let manager = BrowserManager::new(
-            "google-chrome-stable".to_string(),
-            "chrome".to_string(),
-        );
+        let manager = BrowserManager::new("google-chrome-stable".to_string(), "chrome".to_string());
 
         let child = manager.start_browser("https://example.com");
         if child.is_err() {

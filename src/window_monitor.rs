@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use log::{debug, info, trace};
 use std::ffi::CStr;
 use std::ptr;
@@ -37,7 +37,10 @@ impl WindowMonitor {
     }
 
     pub fn get_browser_window_titles(&self, browser_pids: &[i32]) -> Result<Vec<String>> {
-        debug!("get_browser_window_titles: checking against pids {:?}", browser_pids);
+        debug!(
+            "get_browser_window_titles: checking against pids {:?}",
+            browser_pids
+        );
         unsafe {
             let root = XDefaultRootWindow(self.display);
             let mut children: *mut Window = ptr::null_mut();
@@ -66,27 +69,29 @@ impl WindowMonitor {
             for (i, &window) in child_windows.iter().enumerate() {
                 if let Some(pid) = self.get_window_pid(window) {
                     if browser_pids.contains(&pid) {
-                        if let Ok(title) = self.get_window_title(window) {
-                            if !title.is_empty() {
-                                if log::log_enabled!(log::Level::Trace) {
-                                    trace!("Browser window title (pid {}): '{}'", pid, title);
-                                } else {
-                                    debug!("Browser window title: '{}'", title);
-                                }
-                                titles.push(title);
+                        if let Ok(title) = self.get_window_title(window)
+                            && !title.is_empty()
+                        {
+                            if log::log_enabled!(log::Level::Trace) {
+                                trace!("Browser window title (pid {}): '{}'", pid, title);
+                            } else {
+                                debug!("Browser window title: '{}'", title);
                             }
+                            titles.push(title);
                         }
-                    } else if log::log_enabled!(log::Level::Trace) {
-                        if let Ok(title) = self.get_window_title(window) {
-                            if !title.is_empty() {
-                                trace!("Non-browser window {} (pid {}): '{}'", i, pid, title);
-                            }
-                        }
+                    } else if log::log_enabled!(log::Level::Trace)
+                        && let Ok(title) = self.get_window_title(window)
+                        && !title.is_empty()
+                    {
+                        trace!("Non-browser window {} (pid {}): '{}'", i, pid, title);
                     }
                 }
             }
 
-            info!("get_browser_window_titles: {} non-empty title(s) found", titles.len());
+            info!(
+                "get_browser_window_titles: {} non-empty title(s) found",
+                titles.len()
+            );
 
             if !children.is_null() {
                 XFree(children as *mut _);

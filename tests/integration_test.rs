@@ -67,7 +67,7 @@ fn test_config_roundtrip() {
 
     let original_config = create_test_config();
 
-    let yaml_content = serde_yaml::to_string(&original_config).unwrap();
+    let yaml_content = serde_yaml_ng::to_string(&original_config).unwrap();
     fs::write(&config_path, yaml_content).unwrap();
 
     let loaded_config = Config::load(&config_path).unwrap();
@@ -175,10 +175,7 @@ fn test_filter_find_blacklisted_title_whitelisted() {
 #[tokio::test]
 #[serial]
 async fn test_browser_manager_integration() {
-    let manager = BrowserManager::new(
-        "echo".to_string(),
-        "nonexistent-process".to_string(),
-    );
+    let manager = BrowserManager::new("echo".to_string(), "nonexistent-process".to_string());
 
     let result = manager.start_browser("test-url");
     assert!(result.is_ok());
@@ -196,7 +193,10 @@ fn test_background_manager_integration() {
 
     assert!(bg.set_normal_background("/tmp/test_normal.jpg").is_ok());
     assert!(bg.set_blocked_background("/tmp/test_blocked.jpg").is_ok());
-    assert!(bg.set_bathroom_break_background("/tmp/test_break.jpg").is_ok());
+    assert!(
+        bg.set_bathroom_break_background("/tmp/test_break.jpg")
+            .is_ok()
+    );
 }
 
 #[tokio::test]
@@ -263,7 +263,11 @@ fn test_edge_case_handling() {
     let filter = Filter::new(&empty_blacklist, &empty_whitelist).unwrap();
     assert!(!filter.is_blacklisted("any content"));
     assert!(!filter.check_titles(&["any content".to_string()]));
-    assert!(filter.find_blacklisted_title(&["any content".to_string()]).is_none());
+    assert!(
+        filter
+            .find_blacklisted_title(&["any content".to_string()])
+            .is_none()
+    );
 
     let manager = BrowserManager::new("some_executable".to_string(), "".to_string());
     assert!(!manager.has_running_processes());

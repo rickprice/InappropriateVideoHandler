@@ -11,9 +11,15 @@ use std::path::Path;
 pub enum AppPhase {
     #[default]
     Normal,
-    GraceBlocked { until: DateTime<Utc> },
-    HardLocked { until: DateTime<Utc> },
-    BathroomBreak { until: DateTime<Utc> },
+    GraceBlocked {
+        until: DateTime<Utc>,
+    },
+    HardLocked {
+        until: DateTime<Utc>,
+    },
+    BathroomBreak {
+        until: DateTime<Utc>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -62,7 +68,10 @@ impl AppState {
             Ok(mtime) => mtime,
             Err(_) => {
                 return if last_modified.is_none() {
-                    Ok(Some((AppState::default(), std::time::SystemTime::UNIX_EPOCH)))
+                    Ok(Some((
+                        AppState::default(),
+                        std::time::SystemTime::UNIX_EPOCH,
+                    )))
                 } else {
                     Ok(None)
                 };

@@ -72,7 +72,10 @@ fn default_log_file() -> String {
 }
 
 fn default_titles_file() -> String {
-    format!("{}/inappropriate-video-handler/window-titles.txt", xdg_cache_dir())
+    format!(
+        "{}/inappropriate-video-handler/window-titles.txt",
+        xdg_cache_dir()
+    )
 }
 
 impl Default for Config {
@@ -95,16 +98,34 @@ impl Default for Config {
                 retry_reset_minutes: 20,
             },
             backgrounds: BackgroundConfig {
-                normal: format!("{}/inappropriate-video-handler/wallpaper/normal.jpg", xdg_config_dir()),
-                blocked: format!("{}/inappropriate-video-handler/wallpaper/blocked.jpg", xdg_config_dir()),
-                bathroom_break: format!("{}/inappropriate-video-handler/wallpaper/bathroom.jpg", xdg_config_dir()),
+                normal: format!(
+                    "{}/inappropriate-video-handler/wallpaper/normal.jpg",
+                    xdg_config_dir()
+                ),
+                blocked: format!(
+                    "{}/inappropriate-video-handler/wallpaper/blocked.jpg",
+                    xdg_config_dir()
+                ),
+                bathroom_break: format!(
+                    "{}/inappropriate-video-handler/wallpaper/bathroom.jpg",
+                    xdg_config_dir()
+                ),
             },
             files: FileConfig {
-                blacklist: format!("{}/inappropriate-video-handler/BlackList.txt", xdg_config_dir()),
-                whitelist: format!("{}/inappropriate-video-handler/WhiteList.txt", xdg_config_dir()),
+                blacklist: format!(
+                    "{}/inappropriate-video-handler/BlackList.txt",
+                    xdg_config_dir()
+                ),
+                whitelist: format!(
+                    "{}/inappropriate-video-handler/WhiteList.txt",
+                    xdg_config_dir()
+                ),
                 state_file: format!("{}/inappropriate-video-handler/state.json", xdg_cache_dir()),
                 log_file: format!("{}/inappropriate-video-handler/ivh.log", xdg_cache_dir()),
-                titles_file: format!("{}/inappropriate-video-handler/window-titles.txt", xdg_cache_dir()),
+                titles_file: format!(
+                    "{}/inappropriate-video-handler/window-titles.txt",
+                    xdg_cache_dir()
+                ),
             },
         }
     }
@@ -127,10 +148,10 @@ fn xdg_cache_dir() -> String {
 }
 
 fn expand_tilde(path: String) -> String {
-    if let Some(rest) = path.strip_prefix("~/") {
-        if let Ok(home) = std::env::var("HOME") {
-            return format!("{}/{}", home, rest);
-        }
+    if let Some(rest) = path.strip_prefix("~/")
+        && let Ok(home) = std::env::var("HOME")
+    {
+        return format!("{}/{}", home, rest);
     }
     path
 }
@@ -138,7 +159,7 @@ fn expand_tilde(path: String) -> String {
 impl Config {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let content = fs::read_to_string(path)?;
-        let mut config: Config = serde_yaml::from_str(&content)?;
+        let mut config: Config = serde_yaml_ng::from_str(&content)?;
         config.backgrounds.normal = expand_tilde(config.backgrounds.normal);
         config.backgrounds.blocked = expand_tilde(config.backgrounds.blocked);
         config.backgrounds.bathroom_break = expand_tilde(config.backgrounds.bathroom_break);
@@ -170,21 +191,54 @@ mod tests {
         assert_eq!(config.timeouts.bathroom_break_interval_hours, 2);
         assert_eq!(
             config.backgrounds.normal,
-            format!("{}/inappropriate-video-handler/wallpaper/normal.jpg", xdg_config_dir())
+            format!(
+                "{}/inappropriate-video-handler/wallpaper/normal.jpg",
+                xdg_config_dir()
+            )
         );
         assert_eq!(
             config.backgrounds.blocked,
-            format!("{}/inappropriate-video-handler/wallpaper/blocked.jpg", xdg_config_dir())
+            format!(
+                "{}/inappropriate-video-handler/wallpaper/blocked.jpg",
+                xdg_config_dir()
+            )
         );
         assert_eq!(
             config.backgrounds.bathroom_break,
-            format!("{}/inappropriate-video-handler/wallpaper/bathroom.jpg", xdg_config_dir())
+            format!(
+                "{}/inappropriate-video-handler/wallpaper/bathroom.jpg",
+                xdg_config_dir()
+            )
         );
-        assert_eq!(config.files.blacklist, format!("{}/inappropriate-video-handler/BlackList.txt", xdg_config_dir()));
-        assert_eq!(config.files.whitelist, format!("{}/inappropriate-video-handler/WhiteList.txt", xdg_config_dir()));
-        assert_eq!(config.files.state_file, format!("{}/inappropriate-video-handler/state.json", xdg_cache_dir()));
-        assert_eq!(config.files.log_file, format!("{}/inappropriate-video-handler/ivh.log", xdg_cache_dir()));
-        assert_eq!(config.files.titles_file, format!("{}/inappropriate-video-handler/window-titles.txt", xdg_cache_dir()));
+        assert_eq!(
+            config.files.blacklist,
+            format!(
+                "{}/inappropriate-video-handler/BlackList.txt",
+                xdg_config_dir()
+            )
+        );
+        assert_eq!(
+            config.files.whitelist,
+            format!(
+                "{}/inappropriate-video-handler/WhiteList.txt",
+                xdg_config_dir()
+            )
+        );
+        assert_eq!(
+            config.files.state_file,
+            format!("{}/inappropriate-video-handler/state.json", xdg_cache_dir())
+        );
+        assert_eq!(
+            config.files.log_file,
+            format!("{}/inappropriate-video-handler/ivh.log", xdg_cache_dir())
+        );
+        assert_eq!(
+            config.files.titles_file,
+            format!(
+                "{}/inappropriate-video-handler/window-titles.txt",
+                xdg_cache_dir()
+            )
+        );
     }
 
     #[test]

@@ -14,20 +14,33 @@ impl Filter {
         let blacklist = Self::load_patterns(blacklist_path, "blacklist")?;
         let whitelist = Self::load_patterns(whitelist_path, "whitelist")?;
 
-        info!("Filter: {} blacklist pattern(s), {} whitelist pattern(s)",
-            blacklist.len(), whitelist.len());
+        info!(
+            "Filter: {} blacklist pattern(s), {} whitelist pattern(s)",
+            blacklist.len(),
+            whitelist.len()
+        );
 
-        Ok(Filter { blacklist, whitelist })
+        Ok(Filter {
+            blacklist,
+            whitelist,
+        })
     }
 
     fn load_patterns<P: AsRef<Path>>(path: P, label: &str) -> Result<Vec<Regex>> {
         if !path.as_ref().exists() {
-            info!("{} file '{}' not found, using empty pattern list",
-                label, path.as_ref().display());
+            info!(
+                "{} file '{}' not found, using empty pattern list",
+                label,
+                path.as_ref().display()
+            );
             return Ok(Vec::new());
         }
 
-        info!("Loading {} patterns from '{}'", label, path.as_ref().display());
+        info!(
+            "Loading {} patterns from '{}'",
+            label,
+            path.as_ref().display()
+        );
 
         let content = fs::read_to_string(path)?;
         let mut patterns = Vec::new();
@@ -61,11 +74,17 @@ impl Filter {
         debug!("Checking title: '{}'", title);
         for pattern in &self.blacklist {
             let matched = pattern.is_match(title);
-            trace!("  Blacklist pattern '{}': {}",
-                pattern.as_str(), if matched { "MATCH" } else { "no match" });
+            trace!(
+                "  Blacklist pattern '{}': {}",
+                pattern.as_str(),
+                if matched { "MATCH" } else { "no match" }
+            );
             if matched {
                 let whitelisted = self.is_whitelisted(title);
-                debug!("  Blacklist match for '{}', whitelisted={}", title, whitelisted);
+                debug!(
+                    "  Blacklist match for '{}', whitelisted={}",
+                    title, whitelisted
+                );
                 if !whitelisted {
                     return true;
                 }
@@ -77,8 +96,11 @@ impl Filter {
     pub fn is_whitelisted(&self, title: &str) -> bool {
         self.whitelist.iter().any(|p| {
             let matched = p.is_match(title);
-            trace!("  Whitelist pattern '{}': {}",
-                p.as_str(), if matched { "MATCH" } else { "no match" });
+            trace!(
+                "  Whitelist pattern '{}': {}",
+                p.as_str(),
+                if matched { "MATCH" } else { "no match" }
+            );
             matched
         })
     }
@@ -90,14 +112,21 @@ impl Filter {
             debug!("  Checking: '{}'", title);
             if let Some(pattern) = self.blacklist.iter().find(|p| {
                 let matched = p.is_match(title);
-                trace!("  '{}' vs pattern '{}': {}",
-                    title, p.as_str(), if matched { "MATCH" } else { "no match" });
+                trace!(
+                    "  '{}' vs pattern '{}': {}",
+                    title,
+                    p.as_str(),
+                    if matched { "MATCH" } else { "no match" }
+                );
                 matched
-            }) {
-                if !self.is_whitelisted(title) {
-                    info!("Blacklist hit: title='{}' pattern='{}'", title, pattern.as_str());
-                    return Some((title.clone(), pattern.as_str().to_string()));
-                }
+            }) && !self.is_whitelisted(title)
+            {
+                info!(
+                    "Blacklist hit: title='{}' pattern='{}'",
+                    title,
+                    pattern.as_str()
+                );
+                return Some((title.clone(), pattern.as_str().to_string()));
             }
         }
         debug!("No blacklisted titles found");
@@ -345,10 +374,7 @@ mod tests {
     fn test_find_blacklisted_title_no_match() {
         let filter = make_filter(".*porn.*", "");
 
-        let titles = vec![
-            "cooking tutorial".to_string(),
-            "news update".to_string(),
-        ];
+        let titles = vec!["cooking tutorial".to_string(), "news update".to_string()];
 
         assert!(filter.find_blacklisted_title(&titles).is_none());
     }
@@ -405,7 +431,12 @@ mod tests {
         for (raw, expected) in cases {
             let titles: Vec<String> = raw.iter().map(|s| s.to_string()).collect();
             assert_eq!(filter.check_titles(&titles), *expected, "titles={:?}", raw);
-            assert_eq!(filter.find_blacklisted_title(&titles).is_some(), *expected, "titles={:?}", raw);
+            assert_eq!(
+                filter.find_blacklisted_title(&titles).is_some(),
+                *expected,
+                "titles={:?}",
+                raw
+            );
         }
     }
 }
